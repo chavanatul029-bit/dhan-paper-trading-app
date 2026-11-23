@@ -1,0 +1,7 @@
+
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="100" fill="#101827"/>
+  <path d="M100 350 L190 260 L260 315 L405 145" fill="none" stroke="#42d6a4" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M325 145 H405 V225" fill="none" stroke="#42d6a4" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="256" y="440" font-size="62" text-anchor="middle" font-family="Arial" font-weight="bold" fill="white">DHAN</text>
+</svg>
