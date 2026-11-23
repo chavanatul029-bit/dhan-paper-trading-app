@@ -1,0 +1,11 @@
+
+{
+  "name": "Dhan Paper Trading App",
+  "short_name": "Dhan Paper",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101827",
+  "theme_color": "#101827",
+  "description": "BUY ONLY Paper Trading Dashboard"
+}
