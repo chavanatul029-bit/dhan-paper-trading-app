@@ -1,5 +1,5 @@
 
-const CACHE_NAME = "dhan-paper-v2";
+const CACHE_NAME = "dhan-paper-v3";
 
 const FILES_TO_CACHE = [
   "./",
