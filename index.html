@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,31 +6,39 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#101827">
-<title>Dhan Paper Trading</title>
+<title>Dhan Paper Trading App</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#101827;color:#fff;font-family:Arial,sans-serif;padding:18px}
+body{margin:0;background:#101827;color:white;font-family:Arial;padding:16px}
 .container{max-width:650px;margin:auto}
 h2{color:#42d6a4}
-.card{background:#1c293b;padding:18px;border-radius:12px;margin:14px 0}
+.card{background:#1c293b;padding:17px;border-radius:12px;margin:14px 0}
 label{display:block;margin-top:12px;color:#cbd5e1}
-input,select{width:100%;padding:12px;margin-top:6px;border:0;border-radius:7px;background:#334155;color:white}
-button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
+input,select,textarea{width:100%;padding:12px;margin-top:6px;border:0;border-radius:7px;background:#334155;color:white;font-size:15px}
+textarea{min-height:160px;resize:vertical}
+button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin-top:12px}
+.read{background:#2563eb;color:white;width:100%}
 .start{background:#16a34a;color:white;width:48%}
 .stop{background:#dc2626;color:white;width:48%}
 .status{color:#fbbf24;font-weight:bold}
-.small{color:#94a3b8;font-size:13px}
+.small{color:#94a3b8;font-size:13px;line-height:1.5}
+.result{color:#42d6a4;white-space:pre-line}
 </style>
 </head>
 <body>
 <div class="container">
+
 <h2>Dhan Paper Trading App</h2>
 <p class="small">BUY ONLY | PAPER TRADING</p>
 
 <div class="card">
-<h3>Market Data Status</h3>
-<p class="status" id="market">WAITING FOR LIVE DATA</p>
-<p class="small">No fake or simulated LTP is used.</p>
+<h3>Paste Your Trading Signal</h3>
+<p class="small">Paste complete Finobulls signal below.</p>
+
+<textarea id="signal" placeholder="Paste your complete trading signal here..."></textarea>
+
+<button class="read" onclick="readSignal()">READ SIGNAL</button>
+<p id="message" class="result"></p>
 </div>
 
 <div class="card">
@@ -37,28 +46,38 @@ button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
 
 <label>Index</label>
 <select id="index">
-<option>NIFTY</option>
-<option>BANK NIFTY</option>
-<option>SENSEX</option>
+<option value="NIFTY">NIFTY</option>
+<option value="BANK NIFTY">BANK NIFTY</option>
+<option value="SENSEX">SENSEX</option>
 </select>
 
 <label>Option Type</label>
 <select id="option">
-<option>CE</option>
-<option>PE</option>
+<option value="CE">CE</option>
+<option value="PE">PE</option>
 </select>
 
 <label>Strike Price</label>
-<input id="strike" type="number" placeholder="Enter strike">
+<input id="strike" type="number" placeholder="Strike">
 
-<label>Quantity (Lots)</label>
-<input id="lots" type="number" min="4" step="4" placeholder="Enter lots (multiple of 4)">
+<label>Expiry Date</label>
+<input id="expiry" type="date">
+<p class="small">Select only an expiry confirmed in the official Dhan contract list. Automatic expiry verification will be added with the contract-list connection.</p>
 
-<label>Entry Range - Minimum</label>
+<label>Entry Mode</label>
+<select id="mode">
+<option value="RANGE">BUYING RANGE</option>
+<option value="ABOVE">BUY ABOVE</option>
+</select>
+
+<label>Entry Minimum / BUY ABOVE Price</label>
 <input id="entryMin" type="number" step="0.05">
 
-<label>Entry Range - Maximum</label>
+<label>Entry Maximum (only for BUYING RANGE)</label>
 <input id="entryMax" type="number" step="0.05">
+
+<label>Quantity (Lots)</label>
+<input id="lots" type="number" min="4" step="4" placeholder="Multiple of 4 lots">
 
 <label>Stop Loss</label>
 <input id="sl" type="number" step="0.05">
@@ -74,11 +93,17 @@ button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
 </div>
 
 <div class="card">
+<h3>Market Data</h3>
+<p class="status">WAITING FOR GENUINE DHAN LIVE DATA</p>
+<p class="small">No fake, simulated or manually invented LTP is used.</p>
+</div>
+
+<div class="card">
 <h3>Automation</h3>
 <p class="status" id="algo">LOCKED – LIVE DATA NOT CONNECTED</p>
 <button class="start" disabled>START</button>
 <button class="stop" onclick="stopAlgo()">STOP</button>
-<p class="small">START remains disabled until genuine authenticated market data and a secure backend are connected.</p>
+<p class="small">Paper trading only. START remains disabled until genuine authenticated market data, contract verification and secure backend are connected.</p>
 </div>
 
 <div class="card">
@@ -88,23 +113,127 @@ button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
 <p>At T3: Exit remaining 25%.</p>
 </div>
 
-<p class="small">Paper trading only. No real broker orders are placed.</p>
+<p class="small">No real broker orders are placed. This is a paper-trading interface only.</p>
 </div>
 
 <script>
-function stopAlgo(){
- document.getElementById("algo").innerText="STOPPED";
+function getNumber(text){
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
 }
-</script>
-<script>
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", function() {
+
+function readSignal(){
+  const raw = document.getElementById("signal").value.trim();
+  const msg = document.getElementById("message");
+
+  if(!raw){
+    msg.innerText = "Please paste a trading signal first.";
+    return;
+  }
+
+  const upper = raw.toUpperCase();
+
+  const instrument = upper.match(
+    /\b(NIFTY|BANK\s*NIFTY|SENSEX)\s+(\d{4,6})\s+(CE|PE)\b/
+  );
+
+  if(!instrument){
+    msg.innerText = "Index, Strike or CE/PE not recognised. Please check the signal.";
+    return;
+  }
+
+  const indexName = instrument[1].replace(/\s+/g," ");
+  const strikeValue = Number(instrument[2]);
+  const optionType = instrument[3];
+
+  const rangeMatch = upper.match(
+    /BUYING\s*RANGE\s*[-:]\s*(\d+(?:\.\d+)?)\s*[-–TO]+\s*(\d+(?:\.\d+)?)/
+  );
+
+  const aboveMatch = upper.match(
+    /BUY\s*ABOVE\s*[-:]\s*(\d+(?:\.\d+)?)/
+  );
+
+  let mode, entryMin, entryMax;
+
+  if(rangeMatch){
+    mode = "RANGE";
+    entryMin = Number(rangeMatch[1]);
+    entryMax = Number(rangeMatch[2]);
+  } else if(aboveMatch){
+    mode = "ABOVE";
+    entryMin = Number(aboveMatch[1]);
+    entryMax = "";
+  } else {
+    msg.innerText = "BUYING RANGE or BUY ABOVE not found.";
+    return;
+  }
+
+  const targetMatch = upper.match(/TARGETS?\s*[-:]\s*([0-9.,\s]+)/);
+  const slMatch = upper.match(/(?:SL|STOP\s*LOSS)\s*[-:]\s*(\d+(?:\.\d+)?)/);
+
+  if(!targetMatch || !slMatch){
+    msg.innerText = "Targets or Stop Loss not found. Please check the signal.";
+    return;
+  }
+
+  const targets = targetMatch[1]
+    .split(",")
+    .map(x => Number(x.trim()))
+    .filter(x => Number.isFinite(x));
+
+  if(targets.length !== 3){
+    msg.innerText = "Exactly 3 targets are required.";
+    return;
+  }
+
+  const sl = Number(slMatch[1]);
+
+  if(mode === "RANGE" && entryMin > entryMax){
+    msg.innerText = "Entry range is invalid.";
+    return;
+  }
+
+  if(sl >= entryMin){
+    msg.innerText = "Stop Loss must be below the entry price.";
+    return;
+  }
+
+  if(targets.some((t,i) => t <= (i===0 ? entryMin : targets[i-1]))){
+    msg.innerText = "Targets must be in increasing order above entry.";
+    return;
+  }
+
+  document.getElementById("index").value = indexName;
+  document.getElementById("strike").value = strikeValue;
+  document.getElementById("option").value = optionType;
+  document.getElementById("mode").value = mode;
+  document.getElementById("entryMin").value = entryMin;
+  document.getElementById("entryMax").value = entryMax;
+  document.getElementById("sl").value = sl;
+  document.getElementById("t1").value = targets[0];
+  document.getElementById("t2").value = targets[1];
+  document.getElementById("t3").value = targets[2];
+
+  msg.innerText =
+    "SIGNAL READ SUCCESSFULLY\n" +
+    indexName + " " + strikeValue + " " + optionType + "\n" +
+    "Mode: " + (mode === "RANGE" ? "BUYING RANGE" : "BUY ABOVE") + "\n" +
+    "Entry: " + (mode === "RANGE" ? entryMin + " - " + entryMax : "Above " + entryMin) + "\n" +
+    "SL: " + sl + "\n" +
+    "Targets: " + targets.join(", ") +
+    "\n\nExpiry must be selected separately.";
+}
+
+function stopAlgo(){
+  document.getElementById("algo").innerText = "STOPPED";
+}
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load",function(){
     navigator.serviceWorker.register("./sw.js")
-      .then(function() {
-        console.log("App ready");
-      })
-      .catch(function(error) {
-        console.log("Service Worker Error:", error);
+      .catch(function(error){
+        console.log("Service Worker Error:",error);
       });
   });
 }
