@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#101827">
 <title>Dhan Paper Trading</title>
 <style>
 *{box-sizing:border-box}
@@ -92,6 +94,19 @@ button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
 <script>
 function stopAlgo(){
  document.getElementById("algo").innerText="STOPPED";
+}
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function() {
+    navigator.serviceWorker.register("./sw.js")
+      .then(function() {
+        console.log("App ready");
+      })
+      .catch(function(error) {
+        console.log("Service Worker Error:", error);
+      });
+  });
 }
 </script>
 </body>
