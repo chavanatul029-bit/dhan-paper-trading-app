@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dhan Paper Trading</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101827;color:#fff;font-family:Arial,sans-serif;padding:18px}
+.container{max-width:650px;margin:auto}
+h2{color:#42d6a4}
+.card{background:#1c293b;padding:18px;border-radius:12px;margin:14px 0}
+label{display:block;margin-top:12px;color:#cbd5e1}
+input,select{width:100%;padding:12px;margin-top:6px;border:0;border-radius:7px;background:#334155;color:white}
+button{padding:13px;border:0;border-radius:8px;font-weight:bold;cursor:pointer}
+.start{background:#16a34a;color:white;width:48%}
+.stop{background:#dc2626;color:white;width:48%}
+.status{color:#fbbf24;font-weight:bold}
+.small{color:#94a3b8;font-size:13px}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Dhan Paper Trading App</h2>
+<p class="small">BUY ONLY | PAPER TRADING</p>
+
+<div class="card">
+<h3>Market Data Status</h3>
+<p class="status" id="market">WAITING FOR LIVE DATA</p>
+<p class="small">No fake or simulated LTP is used.</p>
+</div>
+
+<div class="card">
+<h3>Trading Setup</h3>
+
+<label>Index</label>
+<select id="index">
+<option>NIFTY</option>
+<option>BANK NIFTY</option>
+<option>SENSEX</option>
+</select>
+
+<label>Option Type</label>
+<select id="option">
+<option>CE</option>
+<option>PE</option>
+</select>
+
+<label>Strike Price</label>
+<input id="strike" type="number" placeholder="Enter strike">
+
+<label>Quantity (Lots)</label>
+<input id="lots" type="number" min="4" step="4" placeholder="Enter lots (multiple of 4)">
+
+<label>Entry Range - Minimum</label>
+<input id="entryMin" type="number" step="0.05">
+
+<label>Entry Range - Maximum</label>
+<input id="entryMax" type="number" step="0.05">
+
+<label>Stop Loss</label>
+<input id="sl" type="number" step="0.05">
+
+<label>Target 1</label>
+<input id="t1" type="number" step="0.05">
+
+<label>Target 2</label>
+<input id="t2" type="number" step="0.05">
+
+<label>Target 3</label>
+<input id="t3" type="number" step="0.05">
+</div>
+
+<div class="card">
+<h3>Automation</h3>
+<p class="status" id="algo">LOCKED – LIVE DATA NOT CONNECTED</p>
+<button class="start" disabled>START</button>
+<button class="stop" onclick="stopAlgo()">STOP</button>
+<p class="small">START remains disabled until genuine authenticated market data and a secure backend are connected.</p>
+</div>
+
+<div class="card">
+<h3>Exit Rules</h3>
+<p>At T1: Book 50%, move SL to average buy price.</p>
+<p>At T2: Book 25%, move SL to T1 price.</p>
+<p>At T3: Exit remaining 25%.</p>
+</div>
+
+<p class="small">Paper trading only. No real broker orders are placed.</p>
+</div>
+
+<script>
+function stopAlgo(){
+ document.getElementById("algo").innerText="STOPPED";
+}
+</script>
+</body>
+</html>
