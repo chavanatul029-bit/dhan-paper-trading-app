@@ -7,6 +7,7 @@
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#101827">
 <title>Dhan Paper Trading App</title>
+
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#101827;color:white;font-family:Arial;padding:16px}
@@ -29,6 +30,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 input[type=file]{background:#334155}
 </style>
 </head>
+
 <body>
 <div class="container">
 
@@ -189,6 +191,7 @@ function parseCSV(text){
   return rows;
 }
 
+/* Dhan CSV expiry date reader */
 function parseExpiry(value){
   if(value === undefined || value === null) return null;
 
@@ -197,21 +200,59 @@ function parseExpiry(value){
 
   let match;
 
-  if((match = s.match(/^(\d{4})-(\d{2})-(\d{2})/))){
-    return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]));
+  // DD-MM-YYYY HH:MM or DD/MM/YYYY HH:MM
+  match = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$/);
+
+  if(match){
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+
+    const d = new Date(year, month-1, day);
+
+    if(d.getFullYear() === year &&
+       d.getMonth() === month-1 &&
+       d.getDate() === day){
+      return d;
+    }
+
+    return null;
   }
 
-  if((match = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/))){
-    return new Date(Number(match[3]),Number(match[2])-1,Number(match[1]));
+  // YYYY-MM-DD
+  match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if(match){
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const d = new Date(year, month-1, day);
+
+    if(d.getFullYear() === year &&
+       d.getMonth() === month-1 &&
+       d.getDate() === day){
+      return d;
+    }
+
+    return null;
   }
 
-  if((match = s.match(/^(\d{4})(\d{2})(\d{2})$/))){
-    return new Date(Number(match[1]),Number(match[2])-1,Number(match[3]));
-  }
+  // YYYYMMDD
+  match = s.match(/^(\d{4})(\d{2})(\d{2})$/);
 
-  const d = new Date(s);
-  if(!Number.isNaN(d.getTime())){
-    return new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  if(match){
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const d = new Date(year, month-1, day);
+
+    if(d.getFullYear() === year &&
+       d.getMonth() === month-1 &&
+       d.getDate() === day){
+      return d;
+    }
+
+    return null;
   }
 
   return null;
@@ -250,6 +291,7 @@ function loadCSV(){
       }
 
       const headers = rawRows[0].map(h => String(h).trim().replace(/^\uFEFF/,""));
+
       const required = [
         "SEM_SMST_SECURITY_ID",
         "SEM_LOT_UNITS",
@@ -297,19 +339,15 @@ function loadCSV(){
   reader.readAsText(file);
 }
 
+/* Identify exact index name from Dhan trading symbol */
 function getUnderlying(row){
-  const values = [
-    row.SEM_TRADING_SYMBOL,
-    row.SEM_CUSTOM_SYMBOL,
-    row.SM_SYMBOL_NAME,
-    row.SEM_INSTRUMENT_NAME
-  ].join(" ").toUpperCase().replace(/[^A-Z0-9]/g,"");
+  const symbol = String(row.SEM_TRADING_SYMBOL || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g,"");
 
-  if(values.includes("BANKNIFTY")) return "BANK NIFTY";
-  if(values.includes("SENSEX")) return "SENSEX";
-
-  /* Exclude BANKNIFTY while matching NIFTY */
-  if(values.includes("NIFTY")) return "NIFTY";
+  if(/^BANKNIFTY(?:-|$)/.test(symbol)) return "BANK NIFTY";
+  if(/^NIFTY(?:-|$)/.test(symbol)) return "NIFTY";
+  if(/^SENSEX(?:-|$)/.test(symbol)) return "SENSEX";
 
   return "";
 }
