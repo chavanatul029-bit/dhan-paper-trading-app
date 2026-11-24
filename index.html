@@ -341,9 +341,7 @@ function loadCSV(){
 
 /* Identify exact index name from Dhan trading symbol */
 function getUnderlying(row){
-  const symbol = String(row.SEM_TRADING_SYMBOL || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g,"");
+  const symbol = String(row.SEM_TRADING_SYMBOL || "").toUpperCase().trim();
 
   if(/^BANKNIFTY(?:-|$)/.test(symbol)) return "BANK NIFTY";
   if(/^NIFTY(?:-|$)/.test(symbol)) return "NIFTY";
@@ -351,7 +349,6 @@ function getUnderlying(row){
 
   return "";
 }
-
 function expectedExpiryFlag(index){
   return index === "BANK NIFTY" ? "M" : "W";
 }
