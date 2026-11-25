@@ -613,7 +613,133 @@ function readSignal(){
     "Targets: " + targetValues.join(", ") +
     "\n\nNow click FIND & VERIFY CONTRACT.";
 }
+/* PAPER TRADING LOGIC - LIVE DATA REQUIRED */
 
+let paperTrade = null;
+
+function startPaperLogic(){
+  if(!selectedContract){
+    el("algo").innerText = "LOCKED - CONTRACT NOT VERIFIED";
+    return;
+  }
+
+  const lots = numberValue(el("lots").value);
+
+  if(!Number.isInteger(lots) || lots < 4 || lots % 4 !== 0){
+    el("algo").innerText = "LOCKED - INVALID LOTS";
+    return;
+  }
+
+  const lotSize = selectedContract.lotSize;
+  const totalQty = lots * lotSize;
+
+  paperTrade = {
+    status: "WAITING",
+    mode: el("mode").value,
+    entryMin: numberValue(el("entryMin").value),
+    entryMax: numberValue(el("entryMax").value),
+    sl: numberValue(el("sl").value),
+    t1: numberValue(el("t1").value),
+    t2: numberValue(el("t2").value),
+    t3: numberValue(el("t3").value),
+
+    totalQty: totalQty,
+    remainingQty: totalQty,
+
+    t1Qty: totalQty * 0.50,
+    t2Qty: totalQty * 0.25,
+    t3Qty: totalQty * 0.25,
+
+    entryPrice: null,
+    t1Done: false,
+    t2Done: false,
+    t3Done: false
+  };
+
+  el("algo").innerText = "READY - WAITING FOR AUTHENTICATED LIVE DATA";
+}
+
+/* Call this only from the future authenticated Dhan live feed */
+function processLiveLTP(ltp){
+
+  if(!paperTrade || !Number.isFinite(ltp) || ltp <= 0){
+    return;
+  }
+
+  const trade = paperTrade;
+
+  if(trade.status === "CLOSED"){
+    return;
+  }
+
+  /* BUY ENTRY */
+  if(trade.status === "WAITING"){
+
+    const entryCondition =
+      trade.mode === "RANGE"
+        ? ltp >= trade.entryMin && ltp <= trade.entryMax
+        : ltp >= trade.entryMin;
+
+    if(!entryCondition){
+      return;
+    }
+
+    trade.entryPrice = ltp;
+    trade.status = "ACTIVE";
+
+    el("algo").innerText =
+      "PAPER ENTRY - " + trade.entryPrice;
+  }
+
+  if(trade.status !== "ACTIVE"){
+    return;
+  }
+
+  /* STOP LOSS */
+  if(ltp <= trade.sl){
+
+    trade.remainingQty = 0;
+    trade.status = "CLOSED";
+
+    el("algo").innerText =
+      "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
+
+    return;
+  }
+
+  /* TARGET 1 - BOOK 50%, MOVE SL TO ENTRY */
+  if(!trade.t1Done && ltp >= trade.t1){
+
+    trade.remainingQty -= trade.t1Qty;
+    trade.t1Done = true;
+    trade.sl = trade.entryPrice;
+
+    el("algo").innerText =
+      "T1 HIT - 50% BOOKED - SL MOVED TO ENTRY";
+  }
+
+  /* TARGET 2 - BOOK 25%, MOVE SL TO T1 */
+  if(trade.t1Done && !trade.t2Done && ltp >= trade.t2){
+
+    trade.remainingQty -= trade.t2Qty;
+    trade.t2Done = true;
+    trade.sl = trade.t1;
+
+    el("algo").innerText =
+      "T2 HIT - 25% BOOKED - SL MOVED TO T1";
+  }
+
+  /* TARGET 3 - EXIT REMAINING 25% */
+  if(trade.t2Done && !trade.t3Done && ltp >= trade.t3){
+
+    trade.remainingQty = 0;
+    trade.t3Done = true;
+    trade.status = "CLOSED";
+
+    el("algo").innerText =
+      "T3 HIT - ALL REMAINING QUANTITY EXITED";
+  }
+}
 function stopAlgo(){
   el("algo").innerText = "STOPPED";
 }
