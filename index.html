@@ -28,6 +28,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .result{color:#42d6a4;white-space:pre-line;line-height:1.6}
 .contract{background:#0f172a;padding:12px;border-radius:8px;margin-top:12px;line-height:1.8;overflow-wrap:anywhere}
 input[type=file]{background:#334155}
+.quantity{background:#0f172a;padding:14px;border-radius:8px;margin-top:12px;line-height:1.9}
+.quantity strong{color:#42d6a4}
 </style>
 </head>
 
@@ -73,7 +75,7 @@ input[type=file]{background:#334155}
 <input id="strike" type="number" placeholder="Strike">
 
 <label>Expiry Date</label>
-<input id="expiry" type="date">
+<input id="expiry" type="date" readonly>
 <p class="small" id="expiryInfo">Expiry will be selected from the official CSV.</p>
 
 <label>Entry Mode</label>
@@ -88,8 +90,13 @@ input[type=file]{background:#334155}
 <label>Entry Maximum (only for BUYING RANGE)</label>
 <input id="entryMax" type="number" step="0.05">
 
-<label>Quantity (Lots)</label>
-<input id="lots" type="number" min="4" step="4" placeholder="Multiple of 4 lots">
+<label>Quantity (Lots) - Multiple of 4</label>
+<input id="lots" type="number" min="4" step="4" placeholder="4, 8, 12, 16...">
+
+<div id="quantitySummary" class="quantity">
+<strong>Quantity Calculation</strong>
+<p class="small">Verify contract first. Official CSV Lot Size will be used for calculation.</p>
+</div>
 
 <label>Stop Loss</label>
 <input id="sl" type="number" step="0.05">
@@ -122,7 +129,7 @@ input[type=file]{background:#334155}
 </div>
 
 <div class="card">
-<h3>Exit Rules</h3>
+<h3>6. Exit Rules</h3>
 <p>At T1: Book 50%, move SL to average buy price.</p>
 <p>At T2: Book 25%, move SL to T1 price.</p>
 <p>At T3: Exit remaining 25%.</p>
@@ -141,7 +148,7 @@ function el(id){
 }
 
 function numberValue(value){
-  if(value === undefined || value === null) return NaN;
+  if(value === undefined || value === null || String(value).trim() === "") return NaN;
   return Number(String(value).replace(/,/g,"").trim());
 }
 
@@ -207,7 +214,6 @@ function parseExpiry(value){
     const day = Number(match[1]);
     const month = Number(match[2]);
     const year = Number(match[3]);
-
     const d = new Date(year, month-1, day);
 
     if(d.getFullYear() === year &&
@@ -215,7 +221,6 @@ function parseExpiry(value){
        d.getDate() === day){
       return d;
     }
-
     return null;
   }
 
@@ -233,7 +238,6 @@ function parseExpiry(value){
        d.getDate() === day){
       return d;
     }
-
     return null;
   }
 
@@ -251,7 +255,6 @@ function parseExpiry(value){
        d.getDate() === day){
       return d;
     }
-
     return null;
   }
 
@@ -263,6 +266,14 @@ function dateString(date){
   const m = String(date.getMonth()+1).padStart(2,"0");
   const d = String(date.getDate()).padStart(2,"0");
   return `${y}-${m}-${d}`;
+}
+
+function clearSelectedContract(message){
+  selectedContract = null;
+  el("expiry").value = "";
+  el("expiryInfo").innerText = "Expiry will be selected from the official CSV.";
+  el("contractResult").innerText = message || "Contract verification required.";
+  updateQuantitySummary();
 }
 
 function loadCSV(){
@@ -279,6 +290,8 @@ function loadCSV(){
   }
 
   el("csvStatus").innerText = "Reading CSV file. Please wait...";
+  contractRows = [];
+  clearSelectedContract("CSV loading. Find your contract after loading.");
 
   const reader = new FileReader();
 
@@ -298,7 +311,8 @@ function loadCSV(){
         "SEM_EXPIRY_DATE",
         "SEM_STRIKE_PRICE",
         "SEM_OPTION_TYPE",
-        "SEM_EXPIRY_FLAG"
+        "SEM_EXPIRY_FLAG",
+        "SEM_TRADING_SYMBOL"
       ];
 
       const missing = required.filter(h => !headers.includes(h));
@@ -307,14 +321,19 @@ function loadCSV(){
         throw new Error("Missing CSV columns: " + missing.join(", "));
       }
 
-      contractRows = [];
+      const indexes = {};
+      headers.forEach((h,i) => indexes[h] = i);
 
       for(let i=1;i<rawRows.length;i++){
         const values = rawRows[i];
         if(values.length < headers.length) continue;
 
         const obj = {};
-        headers.forEach((h,j) => obj[h] = values[j] ?? "");
+        required.forEach(h => obj[h] = values[indexes[h]] ?? "");
+
+        obj.SEM_EXM_EXCH_ID = values[indexes["SEM_EXM_EXCH_ID"]] ?? "";
+        obj.SEM_SEGMENT = values[indexes["SEM_SEGMENT"]] ?? "";
+
         contractRows.push(obj);
       }
 
@@ -323,11 +342,12 @@ function loadCSV(){
         "Total rows read: " + contractRows.length.toLocaleString("en-IN") +
         "\nFile: " + file.name;
 
-      selectedContract = null;
       el("contractResult").innerText = "CSV loaded. Now find your contract.";
+      updateQuantitySummary();
 
     }catch(error){
       contractRows = [];
+      clearSelectedContract("CSV could not be verified.");
       el("csvStatus").innerText = "CSV ERROR: " + error.message;
     }
   };
@@ -349,6 +369,7 @@ function getUnderlying(row){
 
   return "";
 }
+
 function expectedExpiryFlag(index){
   return index === "BANK NIFTY" ? "M" : "W";
 }
@@ -364,7 +385,7 @@ function findContract(){
   const strike = numberValue(el("strike").value);
 
   if(!Number.isFinite(strike)){
-    el("contractResult").innerText = "Please enter a valid strike price.";
+    clearSelectedContract("Please enter a valid strike price.");
     return;
   }
 
@@ -385,7 +406,8 @@ function findContract(){
       Math.abs(rowStrike-strike) < 0.001 &&
       rowFlag === expectedFlag &&
       securityId !== "" &&
-      Number.isFinite(lotSize) && lotSize > 0 &&
+      Number.isFinite(lotSize) &&
+      lotSize > 0 &&
       expiry !== null;
   });
 
@@ -398,10 +420,10 @@ function findContract(){
     .sort((a,b) => a.expiry-b.expiry);
 
   if(!futureMatches.length){
-    selectedContract = null;
-    el("contractResult").innerText =
+    clearSelectedContract(
       "No verified future contract found for these details.\n" +
-      "Please check Index, Option Type, Strike and the latest official CSV.";
+      "Please check Index, Option Type, Strike and the latest official CSV."
+    );
     return;
   }
 
@@ -441,8 +463,48 @@ function findContract(){
     "\nExchange: " + selectedContract.exchange +
     "\nSegment: " + selectedContract.segment +
     "\n\nContract details are read from your uploaded CSV. Live LTP is not connected.";
+
+  updateQuantitySummary();
 }
 
+/* Quantity calculation using verified official CSV lot size */
+function updateQuantitySummary(){
+  const box = el("quantitySummary");
+
+  if(!selectedContract){
+    box.innerHTML =
+      "<strong>Quantity Calculation</strong>" +
+      "<p class='small'>Verify contract first. Official CSV Lot Size will be used for calculation.</p>";
+    return;
+  }
+
+  const lots = numberValue(el("lots").value);
+
+  if(!Number.isFinite(lots) || lots < 4 || !Number.isInteger(lots) || lots % 4 !== 0){
+    box.innerHTML =
+      "<strong>Quantity Calculation</strong>" +
+      "<p>Verified Lot Size: <strong>" + selectedContract.lotSize + "</strong></p>" +
+      "<p class='small'>Please enter 4, 8, 12, 16, 20... lots.</p>";
+    return;
+  }
+
+  const totalQty = lots * selectedContract.lotSize;
+  const t1Qty = totalQty * 0.50;
+  const t2Qty = totalQty * 0.25;
+  const t3Qty = totalQty * 0.25;
+
+  box.innerHTML =
+    "<strong>QUANTITY CALCULATION</strong><br>" +
+    "Verified Lot Size: <strong>" + selectedContract.lotSize + "</strong><br>" +
+    "Selected Lots: <strong>" + lots + "</strong><br>" +
+    "Total Quantity: <strong>" + totalQty + "</strong><hr>" +
+    "T1 – 50% Quantity: <strong>" + t1Qty + "</strong><br>" +
+    "T2 – 25% Quantity: <strong>" + t2Qty + "</strong><br>" +
+    "T3 – 25% Quantity: <strong>" + t3Qty + "</strong><br>" +
+    "<p class='small'>Calculated using the official Dhan CSV lot size. This is a quantity preview only.</p>";
+}
+
+/* Read number from signal text */
 function getNumber(text){
   const match = text.match(/-?\d+(?:\.\d+)?/);
   return match ? Number(match[0]) : null;
@@ -460,7 +522,7 @@ function readSignal(){
   const upper = raw.toUpperCase();
 
   const instrument = upper.match(
-    /\b(NIFTY|BANK\s*NIFTY|SENSEX)\s+(\d{4,6})\s+(CE|PE)\b/
+    /\b(BANK\s*NIFTY|NIFTY|SENSEX)\s+(\d{4,6})\s+(CE|PE)\b/
   );
 
   if(!instrument){
@@ -468,16 +530,16 @@ function readSignal(){
     return;
   }
 
-  const indexName = instrument[1].replace(/\s+/g," ");
+  const indexName = instrument[1].replace(/\s+/g," ").trim();
   const strikeValue = Number(instrument[2]);
   const optionType = instrument[3];
 
   const rangeMatch = upper.match(
-    /BUYING\s*RANGE\s*[-:]\s*(\d+(?:\.\d+)?)\s*[-–TO]+\s*(\d+(?:\.\d+)?)/
+    /BUYING\s+RANGE\s*[-:]\s*(\d+(?:\.\d+)?)\s*(?:-|–|TO)\s*(\d+(?:\.\d+)?)/i
   );
 
   const aboveMatch = upper.match(
-    /BUY\s*ABOVE\s*[-:]\s*(\d+(?:\.\d+)?)/
+    /BUY\s+ABOVE\s*[-:]\s*(\d+(?:\.\d+)?)/i
   );
 
   let mode, entryMin, entryMax;
@@ -495,24 +557,23 @@ function readSignal(){
     return;
   }
 
-  const targetMatch = upper.match(/TARGETS?\s*[-:]\s*([0-9.,\s]+)/);
-  const slMatch = upper.match(/(?:SL|STOP\s*LOSS)\s*[-:]\s*(\d+(?:\.\d+)?)/);
+  const targetLine = upper.match(/TARGETS?\s*[-:]\s*([^\r\n]+)/);
+  const slMatch = upper.match(/(?:SL|STOP\s+LOSS)\s*[-:]\s*(\d+(?:\.\d+)?)/);
 
-  if(!targetMatch || !slMatch){
+  if(!targetLine || !slMatch){
     msg.innerText = "Targets or Stop Loss not found.";
     return;
   }
 
-  const targets = targetMatch[1]
-    .split(",")
-    .map(x => Number(x.trim()))
-    .filter(x => Number.isFinite(x));
+  const targets = targetLine[1]
+    .match(/\d+(?:\.\d+)?/g);
 
-  if(targets.length !== 3){
+  if(!targets || targets.length !== 3){
     msg.innerText = "Exactly 3 targets are required.";
     return;
   }
 
+  const targetValues = targets.map(Number);
   const sl = Number(slMatch[1]);
 
   if(mode === "RANGE" && entryMin > entryMax){
@@ -525,7 +586,7 @@ function readSignal(){
     return;
   }
 
-  if(targets.some((t,i) => t <= (i===0 ? entryMin : targets[i-1]))){
+  if(targetValues.some((t,i) => t <= (i===0 ? entryMin : targetValues[i-1]))){
     msg.innerText = "Targets must be in increasing order above entry.";
     return;
   }
@@ -537,12 +598,11 @@ function readSignal(){
   el("entryMin").value = entryMin;
   el("entryMax").value = entryMax;
   el("sl").value = sl;
-  el("t1").value = targets[0];
-  el("t2").value = targets[1];
-  el("t3").value = targets[2];
+  el("t1").value = targetValues[0];
+  el("t2").value = targetValues[1];
+  el("t3").value = targetValues[2];
 
-  selectedContract = null;
-  el("contractResult").innerText = "Signal read. Find and verify the contract.";
+  clearSelectedContract("Signal read. Find and verify the contract.");
 
   msg.innerText =
     "SIGNAL READ SUCCESSFULLY\n" +
@@ -550,13 +610,22 @@ function readSignal(){
     "Mode: " + (mode === "RANGE" ? "BUYING RANGE" : "BUY ABOVE") + "\n" +
     "Entry: " + (mode === "RANGE" ? entryMin + " - " + entryMax : "Above " + entryMin) + "\n" +
     "SL: " + sl + "\n" +
-    "Targets: " + targets.join(", ") +
+    "Targets: " + targetValues.join(", ") +
     "\n\nNow click FIND & VERIFY CONTRACT.";
 }
 
 function stopAlgo(){
   el("algo").innerText = "STOPPED";
 }
+
+/* Invalidate contract if contract-selection details change */
+["index","option","strike"].forEach(id => {
+  el(id).addEventListener("change",function(){
+    clearSelectedContract("Contract details changed. Please verify the contract again.");
+  });
+});
+
+el("lots").addEventListener("input",updateQuantitySummary);
 
 if("serviceWorker" in navigator){
   window.addEventListener("load",function(){
