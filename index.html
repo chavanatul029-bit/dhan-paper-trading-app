@@ -634,6 +634,7 @@ function readSignal(){
 /* PAPER TRADING LOGIC - LIVE DATA REQUIRED */
 
 let paperTrade = null;
+let paperTradeHistory = [];
 function updatePaperDisplay(){
 
   if(!paperTrade){
@@ -694,6 +695,7 @@ function startPaperLogic(){
 
     totalQty: totalQty,
     remainingQty: totalQty,
+    realizedPnL: 0,
 exitHistory: [],
     t1Qty: totalQty * 0.50,
     t2Qty: totalQty * 0.25,
@@ -748,27 +750,41 @@ function processLiveLTP(ltp){
   }
 
   /* STOP LOSS */
-  if(ltp <= trade.sl){
+if(ltp <= trade.sl){
 
-    trade.exitHistory.push(
-      "STOP LOSS EXIT - Price: " + ltp +
-      " - Quantity: " + trade.remainingQty
-    );
+  trade.realizedPnL +=
+    (ltp - trade.entryPrice) * trade.remainingQty;
 
-    trade.remainingQty = 0;
-    trade.status = "CLOSED";
+  trade.exitHistory.push(
+    "STOP LOSS EXIT - Price: " + ltp +
+    " - Quantity: " + trade.remainingQty
+  );
 
-    el("algo").innerText =
-      "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
+  trade.remainingQty = 0;
+  trade.status = "CLOSED";
 
-    updatePaperDisplay();
-    return;
-  }
+  paperTradeHistory.push({
+    status: "CLOSED",
+    entryPrice: trade.entryPrice,
+    exitPrice: ltp,
+    totalQty: trade.totalQty,
+    profitLoss: trade.realizedPnL,
+    reason: "STOP LOSS"
+  });
+
+  el("algo").innerText =
+    "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
+
+  updatePaperDisplay();
+  return;
+}
 
   /* TARGET 1 */
   if(!trade.t1Done && ltp >= trade.t1){
 
     trade.remainingQty -= trade.t1Qty;
+    trade.realizedPnL +=
+  (ltp - trade.entryPrice) * trade.t1Qty;
     trade.t1Done = true;
     trade.sl = trade.entryPrice;
 
@@ -787,6 +803,8 @@ function processLiveLTP(ltp){
   if(trade.t1Done && !trade.t2Done && ltp >= trade.t2){
 
     trade.remainingQty -= trade.t2Qty;
+    trade.realizedPnL +=
+  (ltp - trade.entryPrice) * trade.t2Qty;
     trade.t2Done = true;
     trade.sl = trade.t1;
 
@@ -803,7 +821,8 @@ function processLiveLTP(ltp){
 
   /* TARGET 3 */
   if(trade.t2Done && !trade.t3Done && ltp >= trade.t3){
-
+trade.realizedPnL +=
+  (ltp - trade.entryPrice) * trade.remainingQty;
     trade.exitHistory.push(
       "T3 HIT - Price: " + ltp +
       " - Quantity Booked: " + trade.remainingQty
