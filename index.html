@@ -128,8 +128,26 @@ input[type=file]{background:#334155}
 <p class="small">Paper trading only. START remains disabled until genuine authenticated market data, contract verification and secure backend are connected.</p>
 </div>
 
-<div class="card">
-<h3>6. Exit Rules</h3>
+<div class="card"><h3>6. Paper Trade Status</h3>
+
+<div class="quantity">
+  <p>Trade Status: <strong id="paperStatus">NOT STARTED</strong></p>
+  <p>Entry Price: <strong id="paperEntry">--</strong></p>
+  <p>Remaining Quantity: <strong id="paperRemaining">--</strong></p>
+  <p>Current Stop Loss: <strong id="paperSL">--</strong></p>
+
+  <hr>
+
+  <p>T1 Status: <strong id="paperT1">PENDING</strong></p>
+  <p>T2 Status: <strong id="paperT2">PENDING</strong></p>
+  <p>T3 Status: <strong id="paperT3">PENDING</strong></p>
+
+  <hr>
+
+  <strong>Exit History</strong>
+  <p id="exitHistory" class="small">No exit recorded.</p>
+</div>
+<h3>7. Exit Rules</h3>
 <p>At T1: Book 50%, move SL to average buy price.</p>
 <p>At T2: Book 25%, move SL to T1 price.</p>
 <p>At T3: Exit remaining 25%.</p>
@@ -616,7 +634,38 @@ function readSignal(){
 /* PAPER TRADING LOGIC - LIVE DATA REQUIRED */
 
 let paperTrade = null;
+function updatePaperDisplay(){
 
+  if(!paperTrade){
+    el("paperStatus").innerText = "NOT STARTED";
+    el("paperEntry").innerText = "--";
+    el("paperRemaining").innerText = "--";
+    el("paperSL").innerText = "--";
+    el("paperT1").innerText = "PENDING";
+    el("paperT2").innerText = "PENDING";
+    el("paperT3").innerText = "PENDING";
+    el("exitHistory").innerText = "No exit recorded.";
+    return;
+  }
+
+  const trade = paperTrade;
+
+  el("paperStatus").innerText = trade.status;
+  el("paperEntry").innerText =
+    trade.entryPrice === null ? "--" : trade.entryPrice;
+
+  el("paperRemaining").innerText = trade.remainingQty;
+  el("paperSL").innerText = trade.sl;
+
+  el("paperT1").innerText = trade.t1Done ? "COMPLETED" : "PENDING";
+  el("paperT2").innerText = trade.t2Done ? "COMPLETED" : "PENDING";
+  el("paperT3").innerText = trade.t3Done ? "COMPLETED" : "PENDING";
+
+  el("exitHistory").innerText =
+    trade.exitHistory.length
+      ? trade.exitHistory.join("\n")
+      : "No exit recorded.";
+}
 function startPaperLogic(){
   if(!selectedContract){
     el("algo").innerText = "LOCKED - CONTRACT NOT VERIFIED";
@@ -645,7 +694,7 @@ function startPaperLogic(){
 
     totalQty: totalQty,
     remainingQty: totalQty,
-
+exitHistory: [],
     t1Qty: totalQty * 0.50,
     t2Qty: totalQty * 0.25,
     t3Qty: totalQty * 0.25,
@@ -657,6 +706,7 @@ function startPaperLogic(){
   };
 
   el("algo").innerText = "READY - WAITING FOR AUTHENTICATED LIVE DATA";
+  updatePaperDisplay();
 }
 
 /* Call this only from the future authenticated Dhan live feed */
@@ -668,7 +718,7 @@ function processLiveLTP(ltp){
 
   const trade = paperTrade;
 
-  if(trade.status === "CLOSED"){
+  if(trade.status === "CLOSED" || trade.status === "STOPPED"){
     return;
   }
 
@@ -689,6 +739,8 @@ function processLiveLTP(ltp){
 
     el("algo").innerText =
       "PAPER ENTRY - " + trade.entryPrice;
+
+    updatePaperDisplay();
   }
 
   if(trade.status !== "ACTIVE"){
@@ -698,39 +750,64 @@ function processLiveLTP(ltp){
   /* STOP LOSS */
   if(ltp <= trade.sl){
 
+    trade.exitHistory.push(
+      "STOP LOSS EXIT - Price: " + ltp +
+      " - Quantity: " + trade.remainingQty
+    );
+
     trade.remainingQty = 0;
     trade.status = "CLOSED";
 
     el("algo").innerText =
       "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
 
+    updatePaperDisplay();
     return;
   }
 
-  /* TARGET 1 - BOOK 50%, MOVE SL TO ENTRY */
+  /* TARGET 1 */
   if(!trade.t1Done && ltp >= trade.t1){
 
     trade.remainingQty -= trade.t1Qty;
     trade.t1Done = true;
     trade.sl = trade.entryPrice;
 
+    trade.exitHistory.push(
+      "T1 HIT - Price: " + ltp +
+      " - Quantity Booked: " + trade.t1Qty
+    );
+
     el("algo").innerText =
       "T1 HIT - 50% BOOKED - SL MOVED TO ENTRY";
+
+    updatePaperDisplay();
   }
 
-  /* TARGET 2 - BOOK 25%, MOVE SL TO T1 */
+  /* TARGET 2 */
   if(trade.t1Done && !trade.t2Done && ltp >= trade.t2){
 
     trade.remainingQty -= trade.t2Qty;
     trade.t2Done = true;
     trade.sl = trade.t1;
 
+    trade.exitHistory.push(
+      "T2 HIT - Price: " + ltp +
+      " - Quantity Booked: " + trade.t2Qty
+    );
+
     el("algo").innerText =
       "T2 HIT - 25% BOOKED - SL MOVED TO T1";
+
+    updatePaperDisplay();
   }
 
-  /* TARGET 3 - EXIT REMAINING 25% */
+  /* TARGET 3 */
   if(trade.t2Done && !trade.t3Done && ltp >= trade.t3){
+
+    trade.exitHistory.push(
+      "T3 HIT - Price: " + ltp +
+      " - Quantity Booked: " + trade.remainingQty
+    );
 
     trade.remainingQty = 0;
     trade.t3Done = true;
@@ -738,28 +815,24 @@ function processLiveLTP(ltp){
 
     el("algo").innerText =
       "T3 HIT - ALL REMAINING QUANTITY EXITED";
+
+    updatePaperDisplay();
   }
 }
 function stopAlgo(){
+
+  if(paperTrade && (
+    paperTrade.status === "WAITING" ||
+    paperTrade.status === "ACTIVE"
+  )){
+    paperTrade.status = "STOPPED";
+
+    paperTrade.exitHistory.push(
+      "TRADE STOPPED BY USER"
+    );
+
+    updatePaperDisplay();
+  }
+
   el("algo").innerText = "STOPPED";
 }
-
-/* Invalidate contract if contract-selection details change */
-["index","option","strike"].forEach(id => {
-  el(id).addEventListener("change",function(){
-    clearSelectedContract("Contract details changed. Please verify the contract again.");
-  });
-});
-
-el("lots").addEventListener("input",updateQuantitySummary);
-
-if("serviceWorker" in navigator){
-  window.addEventListener("load",function(){
-    navigator.serviceWorker.register("./sw.js").catch(function(error){
-      console.log("Service Worker Error:",error);
-    });
-  });
-}
-</script>
-</body>
-</html>
