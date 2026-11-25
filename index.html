@@ -836,3 +836,22 @@ function stopAlgo(){
 
   el("algo").innerText = "STOPPED";
 }
+/* Invalidate contract if contract-selection details change */
+["index","option","strike"].forEach(id => {
+  el(id).addEventListener("change",function(){
+    clearSelectedContract("Contract details changed. Please verify the contract again.");
+  });
+});
+
+el("lots").addEventListener("input",updateQuantitySummary);
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load",function(){
+    navigator.serviceWorker.register("./sw.js").catch(function(error){
+      console.log("Service Worker Error:",error);
+    });
+  });
+}
+</script>
+</body>
+</html>
