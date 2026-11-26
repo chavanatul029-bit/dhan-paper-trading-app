@@ -6,7 +6,6 @@
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#101827">
 <title>Dhan Paper Trading App</title>
-
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#101827;color:white;font-family:Arial;padding:16px}
@@ -33,12 +32,12 @@ input[type=file]{background:#334155}
 .history-table{border-collapse:collapse;width:100%;font-size:12px;min-width:620px}
 .history-table th,.history-table td{border:1px solid #64748b;padding:7px;text-align:left;vertical-align:top}
 .history-table th{background:#334155}
+.history-actions{display:flex;gap:8px;flex-wrap:wrap}
+.clear-history{background:#475569;color:white}
 </style>
 </head>
-
 <body>
 <div class="container">
-
 <h2>Dhan Paper Trading App</h2>
 <p class="small">BUY ONLY | PAPER TRADING | NO REAL ORDERS</p>
 
@@ -60,59 +59,39 @@ input[type=file]{background:#334155}
 
 <div class="card">
 <h3>3. Trading Setup</h3>
-
 <label>Index</label>
 <select id="index">
 <option value="NIFTY">NIFTY</option>
 <option value="BANK NIFTY">BANK NIFTY</option>
 <option value="SENSEX">SENSEX</option>
 </select>
-
 <label>Option Type</label>
-<select id="option">
-<option value="CE">CE</option>
-<option value="PE">PE</option>
-</select>
-
+<select id="option"><option value="CE">CE</option><option value="PE">PE</option></select>
 <label>Strike Price</label>
 <input id="strike" type="number" placeholder="Strike">
-
 <label>Expiry Date</label>
 <input id="expiry" type="date" readonly>
 <p class="small" id="expiryInfo">Expiry will be selected from the official CSV.</p>
-
 <label>Entry Mode</label>
-<select id="mode">
-<option value="RANGE">BUYING RANGE</option>
-<option value="ABOVE">BUY ABOVE</option>
-</select>
-
+<select id="mode"><option value="RANGE">BUYING RANGE</option><option value="ABOVE">BUY ABOVE</option></select>
 <label>Entry Minimum / BUY ABOVE Price</label>
 <input id="entryMin" type="number" step="0.05">
-
 <label>Entry Maximum (only for BUYING RANGE)</label>
 <input id="entryMax" type="number" step="0.05">
-
 <label>Quantity (Lots) - Multiple of 4</label>
 <input id="lots" type="number" min="4" step="4" placeholder="4, 8, 12, 16...">
-
 <div id="quantitySummary" class="quantity">
 <strong>Quantity Calculation</strong>
 <p class="small">Verify contract first. Official CSV Lot Size will be used for calculation.</p>
 </div>
-
 <label>Stop Loss</label>
 <input id="sl" type="number" step="0.05">
-
 <label>Target 1</label>
 <input id="t1" type="number" step="0.05">
-
 <label>Target 2</label>
 <input id="t2" type="number" step="0.05">
-
 <label>Target 3</label>
 <input id="t3" type="number" step="0.05">
-
 <button class="find" onclick="findContract()">FIND &amp; VERIFY CONTRACT</button>
 <div id="contractResult" class="contract small">No contract selected.</div>
 </div>
@@ -138,18 +117,20 @@ input[type=file]{background:#334155}
 <p>Entry Price: <strong id="paperEntry">--</strong></p>
 <p>Remaining Quantity: <strong id="paperRemaining">--</strong></p>
 <p>Current Stop Loss: <strong id="paperSL">--</strong></p>
-
 <hr>
 <p>T1 Status: <strong id="paperT1">PENDING</strong></p>
 <p>T2 Status: <strong id="paperT2">PENDING</strong></p>
 <p>T3 Status: <strong id="paperT3">PENDING</strong></p>
-
 <hr>
 <strong>Exit History</strong>
 <p id="exitHistory" class="small">No exit recorded.</p>
 <hr>
 <strong>Paper Trade History</strong>
-<div id="paperTradeHistory" class="small">No completed trades yet.</div>
+<div id="paperTradeHistory" class="small">No completed or stopped trades yet.</div>
+<div class="history-actions">
+<button class="clear-history" onclick="clearPaperHistory()">CLEAR SAVED HISTORY</button>
+</div>
+<p class="small">History is saved in this browser on this device. Clearing browser site data may remove it.</p>
 </div>
 </div>
 
@@ -160,788 +141,466 @@ input[type=file]{background:#334155}
 <p>At T3: Exit remaining 25%.</p>
 <p class="small">For exact 50/25/25 lot allocation, total lots must be a multiple of 4.</p>
 </div>
-
 <p class="small">No real broker orders are placed. This is a paper-trading interface only.</p>
 </div>
 
 <script>
+"use strict";
+
+const STORAGE_KEY = "dhanPaperTradeHistory_v2";
+const ACTIVE_TRADE_KEY = "dhanPaperActiveTrade_v2";
 let contractRows = [];
 let selectedContract = null;
-
-/* Paper-trade variables. No live feed is connected in this version. */
 let paperTrade = null;
 let paperTradeHistory = [];
 
-function el(id){
-  return document.getElementById(id);
-}
+function el(id){ return document.getElementById(id); }
 
 function numberValue(value){
   if(value === undefined || value === null || String(value).trim() === "") return NaN;
   return Number(String(value).replace(/,/g,"").trim());
 }
 
+function savePaperData(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(paperTradeHistory));
+    if(paperTrade) localStorage.setItem(ACTIVE_TRADE_KEY, JSON.stringify(paperTrade));
+    else localStorage.removeItem(ACTIVE_TRADE_KEY);
+  }catch(error){
+    console.error("Could not save paper trade data:", error);
+    el("csvStatus").innerText = "Warning: Browser storage is unavailable or full. History may not persist.";
+  }
+}
+
+function loadPaperData(){
+  try{
+    const savedHistory = localStorage.getItem(STORAGE_KEY);
+    const savedTrade = localStorage.getItem(ACTIVE_TRADE_KEY);
+    const parsedHistory = savedHistory ? JSON.parse(savedHistory) : [];
+    paperTradeHistory = Array.isArray(parsedHistory) ? parsedHistory : [];
+    paperTrade = savedTrade ? JSON.parse(savedTrade) : null;
+    if(paperTrade && !["WAITING","ACTIVE"].includes(paperTrade.status)){
+      paperTrade = null;
+    }
+  }catch(error){
+    paperTradeHistory = [];
+    paperTrade = null;
+    console.error("Saved paper history could not be read:", error);
+  }
+}
+
+function escapeHTML(value){
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[ch]));
+}
+
 /* CSV parser supporting quoted fields and commas inside quotes */
 function parseCSV(text){
   const rows = [];
-  let row = [];
-  let field = "";
-  let quoted = false;
-
+  let row = [], field = "", quoted = false;
   for(let i=0;i<text.length;i++){
     const ch = text[i];
-
     if(quoted){
       if(ch === '"'){
-        if(text[i+1] === '"'){
-          field += '"';
-          i++;
-        }else{
-          quoted = false;
-        }
-      }else{
-        field += ch;
-      }
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else quoted = false;
+      }else field += ch;
     }else{
-      if(ch === '"'){
-        quoted = true;
-      }else if(ch === ","){
-        row.push(field);
-        field = "";
-      }else if(ch === "\n"){
-        row.push(field);
-        rows.push(row);
-        row = [];
-        field = "";
-      }else if(ch !== "\r"){
-        field += ch;
-      }
+      if(ch === '"') quoted = true;
+      else if(ch === ","){ row.push(field); field = ""; }
+      else if(ch === "\n"){ row.push(field); rows.push(row); row = []; field = ""; }
+      else if(ch !== "\r") field += ch;
     }
   }
-
-  if(field.length || row.length){
-    row.push(field);
-    rows.push(row);
-  }
-
+  if(field.length || row.length){ row.push(field); rows.push(row); }
   return rows;
 }
 
 /* Dhan CSV expiry date reader */
 function parseExpiry(value){
   if(value === undefined || value === null) return null;
-
   const s = String(value).trim();
   if(!s) return null;
-
   let match;
 
-  /* DD-MM-YYYY or DD/MM/YYYY, optionally with time */
   match = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$/);
-
   if(match){
-    const day = Number(match[1]);
-    const month = Number(match[2]);
-    const year = Number(match[3]);
-    const d = new Date(year, month-1, day);
-
-    if(d.getFullYear() === year && d.getMonth() === month-1 && d.getDate() === day){
-      return d;
-    }
-    return null;
+    const day=Number(match[1]), month=Number(match[2]), year=Number(match[3]);
+    const d=new Date(year,month-1,day);
+    return d.getFullYear()===year && d.getMonth()===month-1 && d.getDate()===day ? d : null;
   }
 
-  /* YYYY-MM-DD */
   match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
   if(match){
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const d = new Date(year, month-1, day);
-
-    if(d.getFullYear() === year && d.getMonth() === month-1 && d.getDate() === day){
-      return d;
-    }
-    return null;
+    const year=Number(match[1]), month=Number(match[2]), day=Number(match[3]);
+    const d=new Date(year,month-1,day);
+    return d.getFullYear()===year && d.getMonth()===month-1 && d.getDate()===day ? d : null;
   }
 
-  /* YYYYMMDD */
   match = s.match(/^(\d{4})(\d{2})(\d{2})$/);
-
   if(match){
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const d = new Date(year, month-1, day);
-
-    if(d.getFullYear() === year && d.getMonth() === month-1 && d.getDate() === day){
-      return d;
-    }
-    return null;
+    const year=Number(match[1]), month=Number(match[2]), day=Number(match[3]);
+    const d=new Date(year,month-1,day);
+    return d.getFullYear()===year && d.getMonth()===month-1 && d.getDate()===day ? d : null;
   }
-
   return null;
 }
 
 function dateString(date){
-  const y = date.getFullYear();
-  const m = String(date.getMonth()+1).padStart(2,"0");
-  const d = String(date.getDate()).padStart(2,"0");
+  const y=date.getFullYear(), m=String(date.getMonth()+1).padStart(2,"0"), d=String(date.getDate()).padStart(2,"0");
   return `${y}-${m}-${d}`;
 }
 
 function clearSelectedContract(message){
-  selectedContract = null;
-  el("expiry").value = "";
-  el("expiryInfo").innerText = "Expiry will be selected from the official CSV.";
-  el("contractResult").innerText = message || "Contract verification required.";
+  selectedContract=null;
+  el("expiry").value="";
+  el("expiryInfo").innerText="Expiry will be selected from the official CSV.";
+  el("contractResult").innerText=message || "Contract verification required.";
   updateQuantitySummary();
 }
 
 function loadCSV(){
-  const file = el("csvFile").files[0];
+  const file=el("csvFile").files[0];
+  if(!file){ el("csvStatus").innerText="Please select the Dhan CSV file first."; return; }
+  if(file.size>100*1024*1024){ el("csvStatus").innerText="File is too large for this version."; return; }
 
-  if(!file){
-    el("csvStatus").innerText = "Please select the Dhan CSV file first.";
-    return;
-  }
-
-  if(file.size > 100 * 1024 * 1024){
-    el("csvStatus").innerText = "File is too large for this version.";
-    return;
-  }
-
-  el("csvStatus").innerText = "Reading CSV file. Please wait...";
-  contractRows = [];
+  el("csvStatus").innerText="Reading CSV file. Please wait...";
+  contractRows=[];
   clearSelectedContract("CSV loading. Find your contract after loading.");
 
-  const reader = new FileReader();
-
-  reader.onload = function(event){
+  const reader=new FileReader();
+  reader.onload=function(event){
     try{
-      const rawRows = parseCSV(event.target.result);
+      const rawRows=parseCSV(event.target.result);
+      if(rawRows.length<2) throw new Error("CSV has no contract rows.");
 
-      if(rawRows.length < 2){
-        throw new Error("CSV has no contract rows.");
-      }
+      const headers=rawRows[0].map(h=>String(h).trim().replace(/^\uFEFF/,""));
+      const required=["SEM_SMST_SECURITY_ID","SEM_LOT_UNITS","SEM_EXPIRY_DATE","SEM_STRIKE_PRICE","SEM_OPTION_TYPE","SEM_EXPIRY_FLAG","SEM_TRADING_SYMBOL"];
+      const missing=required.filter(h=>!headers.includes(h));
+      if(missing.length) throw new Error("Missing CSV columns: "+missing.join(", "));
 
-      const headers = rawRows[0].map(h => String(h).trim().replace(/^\uFEFF/,""));
-
-      const required = [
-        "SEM_SMST_SECURITY_ID",
-        "SEM_LOT_UNITS",
-        "SEM_EXPIRY_DATE",
-        "SEM_STRIKE_PRICE",
-        "SEM_OPTION_TYPE",
-        "SEM_EXPIRY_FLAG",
-        "SEM_TRADING_SYMBOL"
-      ];
-
-      const missing = required.filter(h => !headers.includes(h));
-
-      if(missing.length){
-        throw new Error("Missing CSV columns: " + missing.join(", "));
-      }
-
-      const indexes = {};
-      headers.forEach((h,i) => indexes[h] = i);
-
+      const indexes={};
+      headers.forEach((h,i)=>indexes[h]=i);
       for(let i=1;i<rawRows.length;i++){
-        const values = rawRows[i];
-        if(values.length < headers.length) continue;
-
-        const obj = {};
-        required.forEach(h => obj[h] = values[indexes[h]] ?? "");
-
-        obj.SEM_EXM_EXCH_ID = values[indexes["SEM_EXM_EXCH_ID"]] ?? "";
-        obj.SEM_SEGMENT = values[indexes["SEM_SEGMENT"]] ?? "";
-
+        const values=rawRows[i];
+        if(values.length<headers.length) continue;
+        const obj={};
+        required.forEach(h=>obj[h]=values[indexes[h]] ?? "");
+        obj.SEM_EXM_EXCH_ID=values[indexes["SEM_EXM_EXCH_ID"]] ?? "";
+        obj.SEM_SEGMENT=values[indexes["SEM_SEGMENT"]] ?? "";
         contractRows.push(obj);
       }
 
-      el("csvStatus").innerText =
-        "CSV LOADED SUCCESSFULLY\n" +
-        "Total rows read: " + contractRows.length.toLocaleString("en-IN") +
-        "\nFile: " + file.name;
-
-      el("contractResult").innerText = "CSV loaded. Now find your contract.";
+      el("csvStatus").innerText="CSV LOADED SUCCESSFULLY\nTotal rows read: "+contractRows.length.toLocaleString("en-IN")+"\nFile: "+file.name;
+      el("contractResult").innerText="CSV loaded. Now find your contract.";
       updateQuantitySummary();
-
     }catch(error){
-      contractRows = [];
+      contractRows=[];
       clearSelectedContract("CSV could not be verified.");
-      el("csvStatus").innerText = "CSV ERROR: " + error.message;
+      el("csvStatus").innerText="CSV ERROR: "+error.message;
     }
   };
-
-  reader.onerror = function(){
-    el("csvStatus").innerText = "Could not read this file. Please try again.";
-  };
-
+  reader.onerror=function(){ el("csvStatus").innerText="Could not read this file. Please try again."; };
   reader.readAsText(file);
 }
 
-/* Identify exact index name from Dhan trading symbol */
 function getUnderlying(row){
-  const symbol = String(row.SEM_TRADING_SYMBOL || "").toUpperCase().trim();
-
+  const symbol=String(row.SEM_TRADING_SYMBOL || "").toUpperCase().trim();
   if(/^BANKNIFTY(?:-|$)/.test(symbol)) return "BANK NIFTY";
   if(/^NIFTY(?:-|$)/.test(symbol)) return "NIFTY";
   if(/^SENSEX(?:-|$)/.test(symbol)) return "SENSEX";
-
   return "";
 }
 
-function expectedExpiryFlag(index){
-  return index === "BANK NIFTY" ? "M" : "W";
-}
+function expectedExpiryFlag(index){ return index==="BANK NIFTY" ? "M" : "W"; }
 
 function findContract(){
-  if(!contractRows.length){
-    el("contractResult").innerText = "Please load the official Dhan CSV first.";
-    return;
-  }
+  if(!contractRows.length){ el("contractResult").innerText="Please load the official Dhan CSV first."; return; }
+  const index=el("index").value, option=el("option").value, strike=numberValue(el("strike").value);
+  if(!Number.isFinite(strike)){ clearSelectedContract("Please enter a valid strike price."); return; }
 
-  const index = el("index").value;
-  const option = el("option").value;
-  const strike = numberValue(el("strike").value);
-
-  if(!Number.isFinite(strike)){
-    clearSelectedContract("Please enter a valid strike price.");
-    return;
-  }
-
-  const expectedFlag = expectedExpiryFlag(index);
-
-  const matches = contractRows.filter(row => {
-    const rowIndex = getUnderlying(row);
-    const rowOption = String(row.SEM_OPTION_TYPE || "").trim().toUpperCase();
-    const rowStrike = numberValue(row.SEM_STRIKE_PRICE);
-    const rowFlag = String(row.SEM_EXPIRY_FLAG || "").trim().toUpperCase();
-    const securityId = String(row.SEM_SMST_SECURITY_ID || "").trim();
-    const lotSize = numberValue(row.SEM_LOT_UNITS);
-    const expiry = parseExpiry(row.SEM_EXPIRY_DATE);
-
-    return rowIndex === index &&
-      rowOption === option &&
-      Number.isFinite(rowStrike) &&
-      Math.abs(rowStrike-strike) < 0.001 &&
-      rowFlag === expectedFlag &&
-      securityId !== "" &&
-      Number.isFinite(lotSize) &&
-      lotSize > 0 &&
-      expiry !== null;
+  const expectedFlag=expectedExpiryFlag(index);
+  const matches=contractRows.filter(row=>{
+    const rowIndex=getUnderlying(row);
+    const rowOption=String(row.SEM_OPTION_TYPE || "").trim().toUpperCase();
+    const rowStrike=numberValue(row.SEM_STRIKE_PRICE);
+    const rowFlag=String(row.SEM_EXPIRY_FLAG || "").trim().toUpperCase();
+    const securityId=String(row.SEM_SMST_SECURITY_ID || "").trim();
+    const lotSize=numberValue(row.SEM_LOT_UNITS);
+    const expiry=parseExpiry(row.SEM_EXPIRY_DATE);
+    return rowIndex===index && rowOption===option && Number.isFinite(rowStrike) &&
+      Math.abs(rowStrike-strike)<0.001 && rowFlag===expectedFlag && securityId!=="" &&
+      Number.isFinite(lotSize) && lotSize>0 && expiry!==null;
   });
 
-  const today = new Date();
-  today.setHours(0,0,0,0);
-
-  const futureMatches = matches
-    .map(row => ({row, expiry:parseExpiry(row.SEM_EXPIRY_DATE)}))
-    .filter(item => item.expiry >= today)
-    .sort((a,b) => a.expiry-b.expiry);
+  const today=new Date(); today.setHours(0,0,0,0);
+  const futureMatches=matches.map(row=>({row,expiry:parseExpiry(row.SEM_EXPIRY_DATE)}))
+    .filter(item=>item.expiry>=today).sort((a,b)=>a.expiry-b.expiry);
 
   if(!futureMatches.length){
-    clearSelectedContract(
-      "No verified future contract found for these details.\n" +
-      "Please check Index, Option Type, Strike and the latest official CSV."
-    );
+    clearSelectedContract("No verified future contract found for these details.\nPlease check Index, Option Type, Strike and the latest official CSV.");
     return;
   }
 
-  const chosen = futureMatches[0].row;
-  const expiry = parseExpiry(chosen.SEM_EXPIRY_DATE);
-  const lotSize = numberValue(chosen.SEM_LOT_UNITS);
-  const securityId = String(chosen.SEM_SMST_SECURITY_ID).trim();
+  const chosen=futureMatches[0].row, expiry=parseExpiry(chosen.SEM_EXPIRY_DATE);
+  const lotSize=numberValue(chosen.SEM_LOT_UNITS), securityId=String(chosen.SEM_SMST_SECURITY_ID).trim();
+  selectedContract={index,option,strike,expiry:dateString(expiry),lotSize,securityId,
+    tradingSymbol:chosen.SEM_TRADING_SYMBOL || "",exchange:chosen.SEM_EXM_EXCH_ID || "",
+    segment:chosen.SEM_SEGMENT || "",expiryFlag:chosen.SEM_EXPIRY_FLAG || ""};
 
-  selectedContract = {
-    index,
-    option,
-    strike,
-    expiry:dateString(expiry),
-    lotSize,
-    securityId,
-    tradingSymbol:chosen.SEM_TRADING_SYMBOL || "",
-    exchange:chosen.SEM_EXM_EXCH_ID || "",
-    segment:chosen.SEM_SEGMENT || "",
-    expiryFlag:chosen.SEM_EXPIRY_FLAG || ""
-  };
-
-  el("expiry").value = selectedContract.expiry;
-  el("expiryInfo").innerText =
-    "Verified from CSV: " +
-    (expectedFlag === "W" ? "Weekly expiry" : "Monthly expiry");
-
-  el("contractResult").innerText =
-    "CONTRACT FOUND AND VERIFIED FROM CSV\n\n" +
-    "Index: " + index + "\n" +
-    "Option: " + option + "\n" +
-    "Strike: " + strike + "\n" +
-    "Expiry: " + selectedContract.expiry + "\n" +
-    "Expiry Type: " + (expectedFlag === "W" ? "Weekly" : "Monthly") + "\n" +
-    "Lot Size: " + lotSize + "\n" +
-    "Dhan Security ID: " + securityId + "\n" +
-    "Trading Symbol: " + (selectedContract.tradingSymbol || "Not available") +
-    "\nExchange: " + selectedContract.exchange +
-    "\nSegment: " + selectedContract.segment +
+  el("expiry").value=selectedContract.expiry;
+  el("expiryInfo").innerText="Verified from CSV: "+(expectedFlag==="W"?"Weekly expiry":"Monthly expiry");
+  el("contractResult").innerText="CONTRACT FOUND AND VERIFIED FROM CSV\n\n"+
+    "Index: "+index+"\nOption: "+option+"\nStrike: "+strike+"\nExpiry: "+selectedContract.expiry+
+    "\nExpiry Type: "+(expectedFlag==="W"?"Weekly":"Monthly")+"\nLot Size: "+lotSize+
+    "\nDhan Security ID: "+securityId+"\nTrading Symbol: "+(selectedContract.tradingSymbol||"Not available")+
+    "\nExchange: "+selectedContract.exchange+"\nSegment: "+selectedContract.segment+
     "\n\nContract details are read from your uploaded CSV. Live LTP is not connected.";
-
   updateQuantitySummary();
 }
 
-/* Quantity calculation using verified official CSV lot size */
 function updateQuantitySummary(){
-  const box = el("quantitySummary");
-
+  const box=el("quantitySummary");
   if(!selectedContract){
-    box.innerHTML =
-      "<strong>Quantity Calculation</strong>" +
-      "<p class='small'>Verify contract first. Official CSV Lot Size will be used for calculation.</p>";
+    box.innerHTML="<strong>Quantity Calculation</strong><p class='small'>Verify contract first. Official CSV Lot Size will be used for calculation.</p>";
     return;
   }
-
-  const lots = numberValue(el("lots").value);
-
-  if(!Number.isFinite(lots) || lots < 4 || !Number.isInteger(lots) || lots % 4 !== 0){
-    box.innerHTML =
-      "<strong>Quantity Calculation</strong>" +
-      "<p>Verified Lot Size: <strong>" + selectedContract.lotSize + "</strong></p>" +
-      "<p class='small'>Please enter 4, 8, 12, 16, 20... lots.</p>";
+  const lots=numberValue(el("lots").value);
+  if(!Number.isFinite(lots)||lots<4||!Number.isInteger(lots)||lots%4!==0){
+    box.innerHTML="<strong>Quantity Calculation</strong><p>Verified Lot Size: <strong>"+selectedContract.lotSize+
+      "</strong></p><p class='small'>Please enter 4, 8, 12, 16, 20... lots.</p>";
     return;
   }
-
-  const totalQty = lots * selectedContract.lotSize;
-  const t1Qty = totalQty * 0.50;
-  const t2Qty = totalQty * 0.25;
-  const t3Qty = totalQty * 0.25;
-
-  box.innerHTML =
-    "<strong>QUANTITY CALCULATION</strong><br>" +
-    "Verified Lot Size: <strong>" + selectedContract.lotSize + "</strong><br>" +
-    "Selected Lots: <strong>" + lots + "</strong><br>" +
-    "Total Quantity: <strong>" + totalQty + "</strong><hr>" +
-    "T1 – 50% Quantity: <strong>" + t1Qty + "</strong><br>" +
-    "T2 – 25% Quantity: <strong>" + t2Qty + "</strong><br>" +
-    "T3 – 25% Quantity: <strong>" + t3Qty + "</strong><br>" +
-    "<p class='small'>Calculated using the official Dhan CSV lot size. This is a quantity preview only.</p>";
+  const totalQty=lots*selectedContract.lotSize, t1Qty=totalQty*0.50, t2Qty=totalQty*0.25, t3Qty=totalQty*0.25;
+  box.innerHTML="<strong>QUANTITY CALCULATION</strong><br>Verified Lot Size: <strong>"+selectedContract.lotSize+
+    "</strong><br>Selected Lots: <strong>"+lots+"</strong><br>Total Quantity: <strong>"+totalQty+
+    "</strong><hr>T1 – 50% Quantity: <strong>"+t1Qty+"</strong><br>T2 – 25% Quantity: <strong>"+t2Qty+
+    "</strong><br>T3 – 25% Quantity: <strong>"+t3Qty+
+    "</strong><p class='small'>Calculated using the official Dhan CSV lot size. This is a quantity preview only.</p>";
 }
 
-/* Read and validate a Finobulls signal */
 function readSignal(){
-  const raw = el("signal").value.trim();
-  const msg = el("message");
+  const raw=el("signal").value.trim(), msg=el("message");
+  if(!raw){ msg.innerText="Please paste a trading signal first."; return; }
+  const upper=raw.toUpperCase();
+  const instrument=upper.match(/\b(BANK\s*NIFTY|NIFTY|SENSEX)\s+(\d{4,6})\s+(CE|PE)\b/);
+  if(!instrument){ msg.innerText="Index, Strike or CE/PE not recognised."; return; }
 
-  if(!raw){
-    msg.innerText = "Please paste a trading signal first.";
-    return;
+  const indexName=instrument[1].replace(/\s+/g," ").trim()==="BANKNIFTY"?"BANK NIFTY":instrument[1].replace(/\s+/g," ").trim();
+  const strikeValue=Number(instrument[2]), optionType=instrument[3];
+  const rangeMatch=upper.match(/BUYING\s+RANGE\s*[-:]\s*(\d+(?:\.\d+)?)\s*(?:-|–|TO)\s*(\d+(?:\.\d+)?)/i);
+  const aboveMatch=upper.match(/BUY\s+ABOVE\s*[-:]\s*(\d+(?:\.\d+)?)/i);
+  let mode,entryMin,entryMax;
+
+  if(rangeMatch){ mode="RANGE"; entryMin=Number(rangeMatch[1]); entryMax=Number(rangeMatch[2]); }
+  else if(aboveMatch){ mode="ABOVE"; entryMin=Number(aboveMatch[1]); entryMax=""; }
+  else{ msg.innerText="BUYING RANGE or BUY ABOVE not found."; return; }
+
+  const targetLine=upper.match(/TARGETS?\s*[-:]\s*([^\r\n]+)/);
+  const slMatch=upper.match(/(?:SL|STOP\s+LOSS)\s*[-:]\s*(\d+(?:\.\d+)?)/);
+  if(!targetLine||!slMatch){ msg.innerText="Targets or Stop Loss not found."; return; }
+
+  const targets=targetLine[1].match(/\d+(?:\.\d+)?/g);
+  if(!targets||targets.length!==3){ msg.innerText="Exactly 3 targets are required."; return; }
+  const targetValues=targets.map(Number), sl=Number(slMatch[1]);
+
+  if(mode==="RANGE"&&entryMin>entryMax){ msg.innerText="Entry range is invalid."; return; }
+  if(sl>=entryMin){ msg.innerText="Stop Loss must be below the entry price."; return; }
+  if(targetValues.some((t,i)=>t<=(i===0?entryMin:targetValues[i-1]))){
+    msg.innerText="Targets must be in increasing order above entry."; return;
   }
 
-  const upper = raw.toUpperCase();
-
-  const instrument = upper.match(
-    /\b(BANK\s*NIFTY|NIFTY|SENSEX)\s+(\d{4,6})\s+(CE|PE)\b/
-  );
-
-  if(!instrument){
-    msg.innerText = "Index, Strike or CE/PE not recognised.";
-    return;
-  }
-
-  const indexName = instrument[1].replace(/\s+/g," ").trim() === "BANKNIFTY"
-    ? "BANK NIFTY"
-    : instrument[1].replace(/\s+/g," ").trim();
-  const strikeValue = Number(instrument[2]);
-  const optionType = instrument[3];
-
-  const rangeMatch = upper.match(
-    /BUYING\s+RANGE\s*[-:]\s*(\d+(?:\.\d+)?)\s*(?:-|–|TO)\s*(\d+(?:\.\d+)?)/i
-  );
-
-  const aboveMatch = upper.match(
-    /BUY\s+ABOVE\s*[-:]\s*(\d+(?:\.\d+)?)/i
-  );
-
-  let mode, entryMin, entryMax;
-
-  if(rangeMatch){
-    mode = "RANGE";
-    entryMin = Number(rangeMatch[1]);
-    entryMax = Number(rangeMatch[2]);
-  }else if(aboveMatch){
-    mode = "ABOVE";
-    entryMin = Number(aboveMatch[1]);
-    entryMax = "";
-  }else{
-    msg.innerText = "BUYING RANGE or BUY ABOVE not found.";
-    return;
-  }
-
-  const targetLine = upper.match(/TARGETS?\s*[-:]\s*([^\r\n]+)/);
-  const slMatch = upper.match(/(?:SL|STOP\s+LOSS)\s*[-:]\s*(\d+(?:\.\d+)?)/);
-
-  if(!targetLine || !slMatch){
-    msg.innerText = "Targets or Stop Loss not found.";
-    return;
-  }
-
-  const targets = targetLine[1].match(/\d+(?:\.\d+)?/g);
-
-  if(!targets || targets.length !== 3){
-    msg.innerText = "Exactly 3 targets are required.";
-    return;
-  }
-
-  const targetValues = targets.map(Number);
-  const sl = Number(slMatch[1]);
-
-  if(mode === "RANGE" && entryMin > entryMax){
-    msg.innerText = "Entry range is invalid.";
-    return;
-  }
-
-  if(sl >= entryMin){
-    msg.innerText = "Stop Loss must be below the entry price.";
-    return;
-  }
-
-  if(targetValues.some((t,i) => t <= (i===0 ? entryMin : targetValues[i-1]))){
-    msg.innerText = "Targets must be in increasing order above entry.";
-    return;
-  }
-
-  el("index").value = indexName;
-  el("strike").value = strikeValue;
-  el("option").value = optionType;
-  el("mode").value = mode;
-  el("entryMin").value = entryMin;
-  el("entryMax").value = entryMax;
-  el("sl").value = sl;
-  el("t1").value = targetValues[0];
-  el("t2").value = targetValues[1];
-  el("t3").value = targetValues[2];
-
+  el("index").value=indexName;
+  el("strike").value=strikeValue;
+  el("option").value=optionType;
+  el("mode").value=mode;
+  el("entryMin").value=entryMin;
+  el("entryMax").value=entryMax;
+  el("sl").value=sl;
+  el("t1").value=targetValues[0];
+  el("t2").value=targetValues[1];
+  el("t3").value=targetValues[2];
   clearSelectedContract("Signal read. Find and verify the contract.");
-
-  msg.innerText =
-    "SIGNAL READ SUCCESSFULLY\n" +
-    indexName + " " + strikeValue + " " + optionType + "\n" +
-    "Mode: " + (mode === "RANGE" ? "BUYING RANGE" : "BUY ABOVE") + "\n" +
-    "Entry: " + (mode === "RANGE" ? entryMin + " - " + entryMax : "Above " + entryMin) + "\n" +
-    "SL: " + sl + "\n" +
-    "Targets: " + targetValues.join(", ") +
-    "\n\nNow click FIND & VERIFY CONTRACT.";
+  msg.innerText="SIGNAL READ SUCCESSFULLY\n"+indexName+" "+strikeValue+" "+optionType+
+    "\nMode: "+(mode==="RANGE"?"BUYING RANGE":"BUY ABOVE")+
+    "\nEntry: "+(mode==="RANGE"?entryMin+" - "+entryMax:"Above "+entryMin)+
+    "\nSL: "+sl+"\nTargets: "+targetValues.join(", ")+"\n\nNow click FIND & VERIFY CONTRACT.";
 }
 
 /* PAPER TRADE DISPLAY */
 function updatePaperDisplay(){
   updatePaperHistoryDisplay();
-
   if(!paperTrade){
-    el("paperStatus").innerText = "NOT STARTED";
-    el("paperEntry").innerText = "--";
-    el("paperRemaining").innerText = "--";
-    el("paperSL").innerText = "--";
-    el("paperT1").innerText = "PENDING";
-    el("paperT2").innerText = "PENDING";
-    el("paperT3").innerText = "PENDING";
-    el("exitHistory").innerText = "No exit recorded.";
+    el("paperStatus").innerText="NOT STARTED";
+    el("paperEntry").innerText="--";
+    el("paperRemaining").innerText="--";
+    el("paperSL").innerText="--";
+    el("paperT1").innerText="PENDING";
+    el("paperT2").innerText="PENDING";
+    el("paperT3").innerText="PENDING";
+    el("exitHistory").innerText="No exit recorded.";
     return;
   }
-
-  const trade = paperTrade;
-
-  el("paperStatus").innerText = trade.status;
-  el("paperEntry").innerText =
-    trade.entryPrice === null ? "--" : trade.entryPrice;
-  el("paperRemaining").innerText = trade.remainingQty;
-  el("paperSL").innerText = trade.sl;
-
-  el("paperT1").innerText = trade.t1Done ? "COMPLETED" : "PENDING";
-  el("paperT2").innerText = trade.t2Done ? "COMPLETED" : "PENDING";
-  el("paperT3").innerText = trade.t3Done ? "COMPLETED" : "PENDING";
-
-  el("exitHistory").innerText =
-    trade.exitHistory.length
-      ? trade.exitHistory.join("\n")
-      : "No exit recorded.";
+  const trade=paperTrade;
+  el("paperStatus").innerText=trade.status;
+  el("paperEntry").innerText=trade.entryPrice===null?"--":trade.entryPrice;
+  el("paperRemaining").innerText=trade.remainingQty;
+  el("paperSL").innerText=trade.sl;
+  el("paperT1").innerText=trade.t1Done?"COMPLETED":"PENDING";
+  el("paperT2").innerText=trade.t2Done?"COMPLETED":"PENDING";
+  el("paperT3").innerText=trade.t3Done?"COMPLETED":"PENDING";
+  el("exitHistory").innerText=trade.exitHistory && trade.exitHistory.length ? trade.exitHistory.join("\n") : "No exit recorded.";
 }
 
-/* HISTORY TABLE: shows each partial exit separately */
+/* HISTORY TABLE: each partial exit is shown separately */
 function updatePaperHistoryDisplay(){
-  const box = el("paperTradeHistory");
+  const box=el("paperTradeHistory");
+  if(!paperTradeHistory.length){ box.innerText="No completed or stopped trades yet."; return; }
 
-  if(!paperTradeHistory.length){
-    box.innerText = "No completed or stopped trades yet.";
-    return;
-  }
+  let html='<div class="history-wrap"><table class="history-table"><tr>'+
+    '<th>Status</th><th>Entry</th><th>Exit Details</th><th>Total Qty</th>'+
+    '<th>Remaining Qty</th><th>Realized P&amp;L</th><th>Reason</th></tr>';
 
-  let html = `
-    <div class="history-wrap">
-    <table class="history-table">
-      <tr>
-        <th>Status</th>
-        <th>Entry</th>
-        <th>Exit Details</th>
-        <th>Total Qty</th>
-        <th>Remaining Qty</th>
-        <th>Realized P&amp;L</th>
-        <th>Reason</th>
-      </tr>
-  `;
-
-  paperTradeHistory.forEach(trade => {
-    const exits = trade.exitEvents && trade.exitEvents.length
-      ? trade.exitEvents.map(exit =>
-          exit.label + ": " + exit.price +
-          " (Qty: " + exit.quantity + ")"
-        ).join("<br>")
+  paperTradeHistory.forEach(trade=>{
+    const exits=trade.exitEvents && trade.exitEvents.length
+      ? trade.exitEvents.map(exit=>escapeHTML(exit.label)+": "+escapeHTML(exit.price)+
+        " (Qty: "+escapeHTML(exit.quantity)+")").join("<br>")
       : "No exit";
-
-    html += `
-      <tr>
-        <td>${trade.status}</td>
-        <td>${trade.entryPrice === null ? "--" : trade.entryPrice}</td>
-        <td>${exits}</td>
-        <td>${trade.totalQty}</td>
-        <td>${trade.remainingQty}</td>
-        <td>${Number(trade.profitLoss || 0).toFixed(2)}</td>
-        <td>${trade.reason || "--"}</td>
-      </tr>
-    `;
+    html+='<tr><td>'+escapeHTML(trade.status)+'</td><td>'+
+      escapeHTML(trade.entryPrice===null?"--":trade.entryPrice)+'</td><td>'+exits+'</td><td>'+
+      escapeHTML(trade.totalQty)+'</td><td>'+escapeHTML(trade.remainingQty)+'</td><td>'+
+      Number(trade.profitLoss||0).toFixed(2)+'</td><td>'+escapeHTML(trade.reason||"--")+'</td></tr>';
   });
-
-  html += `
-    </table>
-    </div>
-    <p class="small">For STOPPED trades, remaining quantity has not been exited or valued. P&amp;L shows realized partial exits only.</p>
-  `;
-
-  box.innerHTML = html;
+  html+='</table></div><p class="small">For STOPPED trades, remaining quantity has not been exited or valued. P&amp;L shows realized partial exits only.</p>';
+  box.innerHTML=html;
 }
 
-/* Prepare paper-trade structure for future authenticated live data.
-   This function is not connected to the disabled START button. */
+/* Prepared for a future authenticated live feed. Not connected to START. */
 function startPaperLogic(){
-  if(!selectedContract){
-    el("algo").innerText = "LOCKED - CONTRACT NOT VERIFIED";
-    return;
-  }
+  if(!selectedContract){ el("algo").innerText="LOCKED - CONTRACT NOT VERIFIED"; return; }
+  const lots=numberValue(el("lots").value);
+  if(!Number.isInteger(lots)||lots<4||lots%4!==0){ el("algo").innerText="LOCKED - INVALID LOTS"; return; }
 
-  const lots = numberValue(el("lots").value);
-
-  if(!Number.isInteger(lots) || lots < 4 || lots % 4 !== 0){
-    el("algo").innerText = "LOCKED - INVALID LOTS";
-    return;
-  }
-
-  const lotSize = selectedContract.lotSize;
-  const totalQty = lots * lotSize;
-
-  paperTrade = {
-    status: "WAITING",
-    mode: el("mode").value,
-    entryMin: numberValue(el("entryMin").value),
-    entryMax: numberValue(el("entryMax").value),
-    sl: numberValue(el("sl").value),
-    t1: numberValue(el("t1").value),
-    t2: numberValue(el("t2").value),
-    t3: numberValue(el("t3").value),
-
-    totalQty: totalQty,
-    remainingQty: totalQty,
-    realizedPnL: 0,
-    exitHistory: [],
-    exitEvents: [],
-    t1Qty: totalQty * 0.50,
-    t2Qty: totalQty * 0.25,
-    t3Qty: totalQty * 0.25,
-
-    entryPrice: null,
-    t1Done: false,
-    t2Done: false,
-    t3Done: false
+  const totalQty=lots*selectedContract.lotSize;
+  paperTrade={
+    status:"WAITING",mode:el("mode").value,entryMin:numberValue(el("entryMin").value),
+    entryMax:numberValue(el("entryMax").value),sl:numberValue(el("sl").value),
+    t1:numberValue(el("t1").value),t2:numberValue(el("t2").value),t3:numberValue(el("t3").value),
+    totalQty,remainingQty:totalQty,realizedPnL:0,exitHistory:[],exitEvents:[],
+    t1Qty:totalQty*0.50,t2Qty:totalQty*0.25,t3Qty:totalQty*0.25,
+    entryPrice:null,t1Done:false,t2Done:false,t3Done:false
   };
-
-  el("algo").innerText = "READY - WAITING FOR AUTHENTICATED LIVE DATA";
+  savePaperData();
+  el("algo").innerText="READY - WAITING FOR AUTHENTICATED LIVE DATA";
   updatePaperDisplay();
 }
 
 /* Call only from a future authenticated genuine Dhan live feed */
 function processLiveLTP(ltp){
-  if(!paperTrade || !Number.isFinite(ltp) || ltp <= 0){
-    return;
-  }
+  if(!paperTrade||!Number.isFinite(ltp)||ltp<=0) return;
+  const trade=paperTrade;
+  if(trade.status==="CLOSED"||trade.status==="STOPPED") return;
 
-  const trade = paperTrade;
-
-  if(trade.status === "CLOSED" || trade.status === "STOPPED"){
-    return;
-  }
-
-  /* BUY ENTRY */
-  if(trade.status === "WAITING"){
-    const entryCondition =
-      trade.mode === "RANGE"
-        ? ltp >= trade.entryMin && ltp <= trade.entryMax
-        : ltp >= trade.entryMin;
-
-    if(!entryCondition){
-      return;
-    }
-
-    trade.entryPrice = ltp;
-    trade.status = "ACTIVE";
-
-    el("algo").innerText = "PAPER ENTRY - " + trade.entryPrice;
+  if(trade.status==="WAITING"){
+    const entryCondition=trade.mode==="RANGE"
+      ? ltp>=trade.entryMin&&ltp<=trade.entryMax
+      : ltp>=trade.entryMin;
+    if(!entryCondition) return;
+    trade.entryPrice=ltp;
+    trade.status="ACTIVE";
+    el("algo").innerText="PAPER ENTRY - "+trade.entryPrice;
+    savePaperData();
     updatePaperDisplay();
   }
+  if(trade.status!=="ACTIVE") return;
 
-  if(trade.status !== "ACTIVE"){
-    return;
-  }
-
-  /* STOP LOSS: exit all remaining quantity */
-  if(ltp <= trade.sl){
-    const exitQty = trade.remainingQty;
-
-    trade.realizedPnL += (ltp - trade.entryPrice) * exitQty;
-    trade.exitEvents.push({
-      label: "STOP LOSS",
-      price: ltp,
-      quantity: exitQty
-    });
-    trade.exitHistory.push(
-      "STOP LOSS EXIT - Price: " + ltp + " - Quantity: " + exitQty
-    );
-
-    trade.remainingQty = 0;
-    trade.status = "CLOSED";
-
-    paperTradeHistory.push({
-      status: "CLOSED",
-      entryPrice: trade.entryPrice,
-      totalQty: trade.totalQty,
-      remainingQty: 0,
-      profitLoss: trade.realizedPnL,
-      exitEvents: trade.exitEvents.slice(),
-      reason: "STOP LOSS"
-    });
-
-    el("algo").innerText = "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
+  if(ltp<=trade.sl){
+    const exitQty=trade.remainingQty;
+    trade.realizedPnL+=(ltp-trade.entryPrice)*exitQty;
+    trade.exitEvents.push({label:"STOP LOSS",price:ltp,quantity:exitQty});
+    trade.exitHistory.push("STOP LOSS EXIT - Price: "+ltp+" - Quantity: "+exitQty);
+    trade.remainingQty=0;
+    trade.status="CLOSED";
+    paperTradeHistory.push({status:"CLOSED",entryPrice:trade.entryPrice,totalQty:trade.totalQty,
+      remainingQty:0,profitLoss:trade.realizedPnL,exitEvents:trade.exitEvents.slice(),reason:"STOP LOSS"});
+    paperTrade=null;
+    savePaperData();
+    el("algo").innerText="PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
     updatePaperDisplay();
     return;
   }
 
-  /* TARGET 1: book 50%, move SL to entry */
-  if(!trade.t1Done && ltp >= trade.t1){
-    trade.remainingQty -= trade.t1Qty;
-    trade.realizedPnL += (ltp - trade.entryPrice) * trade.t1Qty;
-    trade.t1Done = true;
-    trade.sl = trade.entryPrice;
-
-    trade.exitEvents.push({
-      label: "T1",
-      price: ltp,
-      quantity: trade.t1Qty
-    });
-    trade.exitHistory.push(
-      "T1 HIT - Price: " + ltp + " - Quantity Booked: " + trade.t1Qty
-    );
-
-    el("algo").innerText = "T1 HIT - 50% BOOKED - SL MOVED TO ENTRY";
+  if(!trade.t1Done&&ltp>=trade.t1){
+    trade.remainingQty-=trade.t1Qty;
+    trade.realizedPnL+=(ltp-trade.entryPrice)*trade.t1Qty;
+    trade.t1Done=true;
+    trade.sl=trade.entryPrice;
+    trade.exitEvents.push({label:"T1",price:ltp,quantity:trade.t1Qty});
+    trade.exitHistory.push("T1 HIT - Price: "+ltp+" - Quantity Booked: "+trade.t1Qty);
+    el("algo").innerText="T1 HIT - 50% BOOKED - SL MOVED TO ENTRY";
+    savePaperData();
     updatePaperDisplay();
   }
 
-  /* TARGET 2: book 25%, move SL to T1 */
-  if(trade.t1Done && !trade.t2Done && ltp >= trade.t2){
-    trade.remainingQty -= trade.t2Qty;
-    trade.realizedPnL += (ltp - trade.entryPrice) * trade.t2Qty;
-    trade.t2Done = true;
-    trade.sl = trade.t1;
-
-    trade.exitEvents.push({
-      label: "T2",
-      price: ltp,
-      quantity: trade.t2Qty
-    });
-    trade.exitHistory.push(
-      "T2 HIT - Price: " + ltp + " - Quantity Booked: " + trade.t2Qty
-    );
-
-    el("algo").innerText = "T2 HIT - 25% BOOKED - SL MOVED TO T1";
+  if(trade.t1Done&&!trade.t2Done&&ltp>=trade.t2){
+    trade.remainingQty-=trade.t2Qty;
+    trade.realizedPnL+=(ltp-trade.entryPrice)*trade.t2Qty;
+    trade.t2Done=true;
+    trade.sl=trade.t1;
+    trade.exitEvents.push({label:"T2",price:ltp,quantity:trade.t2Qty});
+    trade.exitHistory.push("T2 HIT - Price: "+ltp+" - Quantity Booked: "+trade.t2Qty);
+    el("algo").innerText="T2 HIT - 25% BOOKED - SL MOVED TO T1";
+    savePaperData();
     updatePaperDisplay();
   }
 
-  /* TARGET 3: exit all remaining quantity */
-  if(trade.t2Done && !trade.t3Done && ltp >= trade.t3){
-    const exitQty = trade.remainingQty;
-
-    trade.realizedPnL += (ltp - trade.entryPrice) * exitQty;
-    trade.exitEvents.push({
-      label: "T3",
-      price: ltp,
-      quantity: exitQty
-    });
-    trade.exitHistory.push(
-      "T3 HIT - Price: " + ltp + " - Quantity Booked: " + exitQty
-    );
-
-    trade.remainingQty = 0;
-    trade.t3Done = true;
-    trade.status = "CLOSED";
-
-    paperTradeHistory.push({
-      status: "CLOSED",
-      entryPrice: trade.entryPrice,
-      totalQty: trade.totalQty,
-      remainingQty: 0,
-      profitLoss: trade.realizedPnL,
-      exitEvents: trade.exitEvents.slice(),
-      reason: "TARGET 3"
-    });
-
-    el("algo").innerText = "T3 HIT - ALL REMAINING QUANTITY EXITED";
+  if(trade.t2Done&&!trade.t3Done&&ltp>=trade.t3){
+    const exitQty=trade.remainingQty;
+    trade.realizedPnL+=(ltp-trade.entryPrice)*exitQty;
+    trade.exitEvents.push({label:"T3",price:ltp,quantity:exitQty});
+    trade.exitHistory.push("T3 HIT - Price: "+ltp+" - Quantity Booked: "+exitQty);
+    trade.remainingQty=0;
+    trade.t3Done=true;
+    trade.status="CLOSED";
+    paperTradeHistory.push({status:"CLOSED",entryPrice:trade.entryPrice,totalQty:trade.totalQty,
+      remainingQty:0,profitLoss:trade.realizedPnL,exitEvents:trade.exitEvents.slice(),reason:"TARGET 3"});
+    paperTrade=null;
+    savePaperData();
+    el("algo").innerText="T3 HIT - ALL REMAINING QUANTITY EXITED";
     updatePaperDisplay();
   }
 }
 
 /* STOP records a stopped trade without inventing an exit price */
 function stopAlgo(){
-  if(paperTrade && (
-    paperTrade.status === "WAITING" ||
-    paperTrade.status === "ACTIVE"
-  )){
-    const trade = paperTrade;
-    trade.status = "STOPPED";
-
+  if(paperTrade&&(paperTrade.status==="WAITING"||paperTrade.status==="ACTIVE")){
+    const trade=paperTrade;
+    trade.status="STOPPED";
     trade.exitHistory.push("TRADE STOPPED BY USER");
-
-    paperTradeHistory.push({
-      status: "STOPPED",
-      entryPrice: trade.entryPrice,
-      totalQty: trade.totalQty,
-      remainingQty: trade.remainingQty,
-      profitLoss: trade.realizedPnL,
-      exitEvents: trade.exitEvents.slice(),
-      reason: trade.entryPrice === null
-        ? "STOPPED BEFORE ENTRY"
-        : "STOPPED - REMAINING QUANTITY NOT EXITED"
-    });
-
+    paperTradeHistory.push({status:"STOPPED",entryPrice:trade.entryPrice,totalQty:trade.totalQty,
+      remainingQty:trade.remainingQty,profitLoss:trade.realizedPnL,exitEvents:trade.exitEvents.slice(),
+      reason:trade.entryPrice===null?"STOPPED BEFORE ENTRY":"STOPPED - REMAINING QUANTITY NOT EXITED"});
+    paperTrade=null;
+    savePaperData();
     updatePaperDisplay();
   }
-
-  el("algo").innerText = "STOPPED";
+  el("algo").innerText="STOPPED";
 }
 
-/* Invalidate contract if contract-selection details change */
-["index","option","strike"].forEach(id => {
+function clearPaperHistory(){
+  if(!confirm("Are you sure you want to permanently clear all saved Paper Trade History from this browser?")) return;
+  paperTradeHistory=[];
+  try{ localStorage.removeItem(STORAGE_KEY); }
+  catch(error){ console.error("Could not clear saved history:",error); }
+  updatePaperDisplay();
+}
+
+["index","option","strike"].forEach(id=>{
   el(id).addEventListener("change",function(){
     clearSelectedContract("Contract details changed. Please verify the contract again.");
   });
 });
-
 el("lots").addEventListener("input",updateQuantitySummary);
 
 if("serviceWorker" in navigator){
@@ -952,7 +611,8 @@ if("serviceWorker" in navigator){
   });
 }
 
-/* Initial display */
+/* Restore locally saved history and active paper-trade state */
+loadPaperData();
 updatePaperDisplay();
 </script>
 </body>
