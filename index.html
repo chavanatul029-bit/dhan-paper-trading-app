@@ -476,63 +476,61 @@ function updatePaperDisplay(){
 
 /* HISTORY TABLE: each partial exit is shown separately */
 
+
 function updatePaperHistoryDisplay(){
   const box=el("paperTradeHistory");
 
-  if(!paperTradeHistory.length){
-    box.innerText="No completed or stopped trades yet.";
-    return;
-  }
-
   let html='<div class="history-wrap"><table class="history-table"><tr>'+
-    '<th>Entry Date &amp; Time</th><th>Exit Date &amp; Time</th><th>Status</th><th>Entry</th><th>T1 Exit</th><th>T2 Exit</th>'+
+    '<th>Entry Date &amp; Time</th><th>Exit Date &amp; Time</th>'+
+    '<th>Status</th><th>Entry</th><th>T1 Exit</th><th>T2 Exit</th>'+
     '<th>T3 Exit</th><th>Stop Loss Exit</th><th>Total Qty</th>'+
     '<th>Remaining Qty</th><th>Realized P&amp;L</th><th>Reason</th></tr>';
 
-  paperTradeHistory.forEach(trade=>{
+  if(!paperTradeHistory.length){
+    html+='<tr><td colspan="12">No completed or stopped trades yet.</td></tr>';
+  }else{
+    paperTradeHistory.forEach(trade=>{
+      const findExit=label=>
+        (trade.exitEvents||[]).find(exit=>exit.label===label);
 
-    const findExit=label=>
-      (trade.exitEvents||[]).find(exit=>exit.label===label);
+      const showExit=exit=>
+        exit ? escapeHTML(exit.price)+" (Qty: "+escapeHTML(exit.quantity)+")" : "--";
 
-    const showExit=exit=>
-      exit
-        ? escapeHTML(exit.price)+" (Qty: "+escapeHTML(exit.quantity)+")"
-        : "--";
+      const t1=findExit("T1");
+      const t2=findExit("T2");
+      const t3=findExit("T3");
+      const stopLoss=findExit("STOP LOSS");
 
-    const t1=findExit("T1");
-    const t2=findExit("T2");
-    const t3=findExit("T3");
-    const stopLoss=findExit("STOP LOSS");
+      const entryPrice=
+        trade.entryPrice===null || trade.entryPrice===undefined
+          ? "--" : escapeHTML(trade.entryPrice);
 
-    const entryPrice=
-      trade.entryPrice===null || trade.entryPrice===undefined
-        ? "--"
-        : escapeHTML(trade.entryPrice);
+      const pnl=Number(trade.profitLoss ?? trade.realizedPnL ?? 0);
+      const pnlText=Number.isFinite(pnl) ? pnl.toFixed(2) : "--";
 
-    const pnl=Number(trade.profitLoss ?? trade.realizedPnL ?? 0);
-    const pnlText=Number.isFinite(pnl) ? pnl.toFixed(2) : "--";
-
-html+='<tr>'+
-  '<td>'+escapeHTML(trade.entryDateTime||"--")+'</td>'+
-  '<td>'+escapeHTML(trade.tradeDateTime||"--")+'</td>'+
-  '<td>'+escapeHTML(trade.status||"--")+'</td>'+
-      '<td>'+entryPrice+'</td>'+
-      '<td>'+showExit(t1)+'</td>'+
-      '<td>'+showExit(t2)+'</td>'+
-      '<td>'+showExit(t3)+'</td>'+
-      '<td>'+showExit(stopLoss)+'</td>'+
-      '<td>'+escapeHTML(trade.totalQty??"--")+'</td>'+
-      '<td>'+escapeHTML(trade.remainingQty??"--")+'</td>'+
-      '<td>'+pnlText+'</td>'+
-      '<td>'+escapeHTML(trade.reason||"--")+'</td>'+
-      '</tr>';
-  });
+      html+='<tr>'+
+        '<td>'+escapeHTML(trade.entryDateTime||"--")+'</td>'+
+        '<td>'+escapeHTML(trade.tradeDateTime||"--")+'</td>'+
+        '<td>'+escapeHTML(trade.status||"--")+'</td>'+
+        '<td>'+entryPrice+'</td>'+
+        '<td>'+showExit(t1)+'</td>'+
+        '<td>'+showExit(t2)+'</td>'+
+        '<td>'+showExit(t3)+'</td>'+
+        '<td>'+showExit(stopLoss)+'</td>'+
+        '<td>'+escapeHTML(trade.totalQty??"--")+'</td>'+
+        '<td>'+escapeHTML(trade.remainingQty??"--")+'</td>'+
+        '<td>'+pnlText+'</td>'+
+        '<td>'+escapeHTML(trade.reason||"--")+'</td>'+
+        '</tr>';
+    });
+  }
 
   html+='</table></div>'+
     '<p class="small">For STOPPED trades, remaining quantity has not been exited or valued. P&amp;L shows realized partial exits only.</p>';
 
   box.innerHTML=html;
 }
+
 
 /* Prepared for a future authenticated live feed. Not connected to START. */
 function startPaperLogic(){
