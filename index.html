@@ -146,6 +146,13 @@ input[type=file]{background:#334155}
 
   <strong>Exit History</strong>
   <p id="exitHistory" class="small">No exit recorded.</p>
+  <hr>
+
+<strong>Paper Trade History</strong>
+
+<div id="paperTradeHistory" class="small">
+  No completed trades yet.
+</div>
 </div>
 <h3>7. Exit Rules</h3>
 <p>At T1: Book 50%, move SL to average buy price.</p>
@@ -635,7 +642,10 @@ function readSignal(){
 
 let paperTrade = null;
 let paperTradeHistory = [];
+
 function updatePaperDisplay(){
+
+  updatePaperHistoryDisplay();
 
   if(!paperTrade){
     el("paperStatus").innerText = "NOT STARTED";
@@ -667,6 +677,46 @@ function updatePaperDisplay(){
       ? trade.exitHistory.join("\n")
       : "No exit recorded.";
 }
+
+function updatePaperHistoryDisplay(){
+
+  const box = el("paperTradeHistory");
+
+  if(!paperTradeHistory.length){
+    box.innerText = "No completed trades yet.";
+    return;
+  }
+
+  let html = `
+    <table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px">
+      <tr>
+        <th>Status</th>
+        <th>Entry</th>
+        <th>Exit</th>
+        <th>Quantity</th>
+        <th>P&L</th>
+      </tr>
+  `;
+
+  paperTradeHistory.forEach(trade => {
+    html += `
+      <tr>
+        <td>${trade.status}</td>
+        <td>${trade.entryPrice}</td>
+        <td>${trade.exitPrice}</td>
+        <td>${trade.totalQty}</td>
+        <td>${trade.profitLoss.toFixed(2)}</td>
+      </tr>
+    `;
+  });
+
+  html += "</table>";
+  box.innerHTML = html;
+}
+
+  
+
+
 function startPaperLogic(){
   if(!selectedContract){
     el("algo").innerText = "LOCKED - CONTRACT NOT VERIFIED";
@@ -696,7 +746,7 @@ function startPaperLogic(){
     totalQty: totalQty,
     remainingQty: totalQty,
     realizedPnL: 0,
-exitHistory: [],
+    exitHistory: [],
     t1Qty: totalQty * 0.50,
     t2Qty: totalQty * 0.25,
     t3Qty: totalQty * 0.25,
@@ -831,6 +881,14 @@ trade.realizedPnL +=
     trade.remainingQty = 0;
     trade.t3Done = true;
     trade.status = "CLOSED";
+    paperTradeHistory.push({
+  status: "CLOSED",
+  entryPrice: trade.entryPrice,
+  exitPrice: ltp,
+  totalQty: trade.totalQty,
+  profitLoss: trade.realizedPnL,
+  reason: "TARGET 3"
+});
 
     el("algo").innerText =
       "T3 HIT - ALL REMAINING QUANTITY EXITED";
