@@ -485,7 +485,7 @@ function updatePaperHistoryDisplay(){
   }
 
   let html='<div class="history-wrap"><table class="history-table"><tr>'+
-    '<th>Status</th><th>Entry</th><th>T1 Exit</th><th>T2 Exit</th>'+
+    '<th>Date &amp; Time</th><th>Status</th><th>Entry</th><th>T1 Exit</th><th>T2 Exit</th>'+
     '<th>T3 Exit</th><th>Stop Loss Exit</th><th>Total Qty</th>'+
     '<th>Remaining Qty</th><th>Realized P&amp;L</th><th>Reason</th></tr>';
 
@@ -513,6 +513,7 @@ function updatePaperHistoryDisplay(){
     const pnlText=Number.isFinite(pnl) ? pnl.toFixed(2) : "--";
 
     html+='<tr>'+
+      '<td>'+escapeHTML(trade.tradeDateTime||"--")+'</td>'+
       '<td>'+escapeHTML(trade.status||"--")+'</td>'+
       '<td>'+entryPrice+'</td>'+
       '<td>'+showExit(t1)+'</td>'+
@@ -578,7 +579,7 @@ function processLiveLTP(ltp){
     trade.exitHistory.push("STOP LOSS EXIT - Price: "+ltp+" - Quantity: "+exitQty);
     trade.remainingQty=0;
     trade.status="CLOSED";
-    paperTradeHistory.push({status:"CLOSED",entryPrice:trade.entryPrice,totalQty:trade.totalQty,
+    paperTradeHistory.push({status:"CLOSED",tradeDateTime:new Date().toLocaleString("en-IN"),entryPrice:trade.entryPrice,totalQty:trade.totalQty,
       remainingQty:0,profitLoss:trade.realizedPnL,exitEvents:trade.exitEvents.slice(),reason:"STOP LOSS"});
     paperTrade=null;
     savePaperData();
@@ -619,7 +620,7 @@ function processLiveLTP(ltp){
     trade.remainingQty=0;
     trade.t3Done=true;
     trade.status="CLOSED";
-    paperTradeHistory.push({status:"CLOSED",entryPrice:trade.entryPrice,totalQty:trade.totalQty,
+    paperTradeHistory.push({status:"CLOSED",tradeDateTime:new Date().toLocaleString("en-IN"),entryPrice:trade.entryPrice,totalQty:trade.totalQty,
       remainingQty:0,profitLoss:trade.realizedPnL,exitEvents:trade.exitEvents.slice(),reason:"TARGET 3"});
     paperTrade=null;
     savePaperData();
@@ -634,7 +635,7 @@ function stopAlgo(){
     const trade=paperTrade;
     trade.status="STOPPED";
     trade.exitHistory.push("TRADE STOPPED BY USER");
-    paperTradeHistory.push({status:"STOPPED",entryPrice:trade.entryPrice,totalQty:trade.totalQty,
+    paperTradeHistory.push({status:"STOPPED",tradeDateTime:new Date().toLocaleString("en-IN"),entryPrice:trade.entryPrice,totalQty:trade.totalQty,
       remainingQty:trade.remainingQty,profitLoss:trade.realizedPnL,exitEvents:trade.exitEvents.slice(),
       reason:trade.entryPrice===null?"STOPPED BEFORE ENTRY":"STOPPED - REMAINING QUANTITY NOT EXITED"});
     paperTrade=null;
