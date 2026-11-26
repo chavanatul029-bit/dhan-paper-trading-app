@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28,8 +27,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .result{color:#42d6a4;white-space:pre-line;line-height:1.6}
 .contract{background:#0f172a;padding:12px;border-radius:8px;margin-top:12px;line-height:1.8;overflow-wrap:anywhere}
 input[type=file]{background:#334155}
-.quantity{background:#0f172a;padding:14px;border-radius:8px;margin-top:12px;line-height:1.9}
+.quantity{background:#0f172a;padding:14px;border-radius:8px;margin-top:12px;line-height:1.9;overflow-wrap:anywhere}
 .quantity strong{color:#42d6a4}
+.history-wrap{overflow-x:auto}
+.history-table{border-collapse:collapse;width:100%;font-size:12px;min-width:620px}
+.history-table th,.history-table td{border:1px solid #64748b;padding:7px;text-align:left;vertical-align:top}
+.history-table th{background:#334155}
 </style>
 </head>
 
@@ -110,7 +113,7 @@ input[type=file]{background:#334155}
 <label>Target 3</label>
 <input id="t3" type="number" step="0.05">
 
-<button class="find" onclick="findContract()">FIND & VERIFY CONTRACT</button>
+<button class="find" onclick="findContract()">FIND &amp; VERIFY CONTRACT</button>
 <div id="contractResult" class="contract small">No contract selected.</div>
 </div>
 
@@ -128,32 +131,29 @@ input[type=file]{background:#334155}
 <p class="small">Paper trading only. START remains disabled until genuine authenticated market data, contract verification and secure backend are connected.</p>
 </div>
 
-<div class="card"><h3>6. Paper Trade Status</h3>
-
+<div class="card">
+<h3>6. Paper Trade Status</h3>
 <div class="quantity">
-  <p>Trade Status: <strong id="paperStatus">NOT STARTED</strong></p>
-  <p>Entry Price: <strong id="paperEntry">--</strong></p>
-  <p>Remaining Quantity: <strong id="paperRemaining">--</strong></p>
-  <p>Current Stop Loss: <strong id="paperSL">--</strong></p>
+<p>Trade Status: <strong id="paperStatus">NOT STARTED</strong></p>
+<p>Entry Price: <strong id="paperEntry">--</strong></p>
+<p>Remaining Quantity: <strong id="paperRemaining">--</strong></p>
+<p>Current Stop Loss: <strong id="paperSL">--</strong></p>
 
-  <hr>
+<hr>
+<p>T1 Status: <strong id="paperT1">PENDING</strong></p>
+<p>T2 Status: <strong id="paperT2">PENDING</strong></p>
+<p>T3 Status: <strong id="paperT3">PENDING</strong></p>
 
-  <p>T1 Status: <strong id="paperT1">PENDING</strong></p>
-  <p>T2 Status: <strong id="paperT2">PENDING</strong></p>
-  <p>T3 Status: <strong id="paperT3">PENDING</strong></p>
-
-  <hr>
-
-  <strong>Exit History</strong>
-  <p id="exitHistory" class="small">No exit recorded.</p>
-  <hr>
-
+<hr>
+<strong>Exit History</strong>
+<p id="exitHistory" class="small">No exit recorded.</p>
+<hr>
 <strong>Paper Trade History</strong>
+<div id="paperTradeHistory" class="small">No completed trades yet.</div>
+</div>
+</div>
 
-<div id="paperTradeHistory" class="small">
-  No completed trades yet.
-</div>
-</div>
+<div class="card">
 <h3>7. Exit Rules</h3>
 <p>At T1: Book 50%, move SL to average buy price.</p>
 <p>At T2: Book 25%, move SL to T1 price.</p>
@@ -167,6 +167,10 @@ input[type=file]{background:#334155}
 <script>
 let contractRows = [];
 let selectedContract = null;
+
+/* Paper-trade variables. No live feed is connected in this version. */
+let paperTrade = null;
+let paperTradeHistory = [];
 
 function el(id){
   return document.getElementById(id);
@@ -232,7 +236,7 @@ function parseExpiry(value){
 
   let match;
 
-  // DD-MM-YYYY HH:MM or DD/MM/YYYY HH:MM
+  /* DD-MM-YYYY or DD/MM/YYYY, optionally with time */
   match = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$/);
 
   if(match){
@@ -241,15 +245,13 @@ function parseExpiry(value){
     const year = Number(match[3]);
     const d = new Date(year, month-1, day);
 
-    if(d.getFullYear() === year &&
-       d.getMonth() === month-1 &&
-       d.getDate() === day){
+    if(d.getFullYear() === year && d.getMonth() === month-1 && d.getDate() === day){
       return d;
     }
     return null;
   }
 
-  // YYYY-MM-DD
+  /* YYYY-MM-DD */
   match = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
 
   if(match){
@@ -258,15 +260,13 @@ function parseExpiry(value){
     const day = Number(match[3]);
     const d = new Date(year, month-1, day);
 
-    if(d.getFullYear() === year &&
-       d.getMonth() === month-1 &&
-       d.getDate() === day){
+    if(d.getFullYear() === year && d.getMonth() === month-1 && d.getDate() === day){
       return d;
     }
     return null;
   }
 
-  // YYYYMMDD
+  /* YYYYMMDD */
   match = s.match(/^(\d{4})(\d{2})(\d{2})$/);
 
   if(match){
@@ -275,9 +275,7 @@ function parseExpiry(value){
     const day = Number(match[3]);
     const d = new Date(year, month-1, day);
 
-    if(d.getFullYear() === year &&
-       d.getMonth() === month-1 &&
-       d.getDate() === day){
+    if(d.getFullYear() === year && d.getMonth() === month-1 && d.getDate() === day){
       return d;
     }
     return null;
@@ -529,12 +527,7 @@ function updateQuantitySummary(){
     "<p class='small'>Calculated using the official Dhan CSV lot size. This is a quantity preview only.</p>";
 }
 
-/* Read number from signal text */
-function getNumber(text){
-  const match = text.match(/-?\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : null;
-}
-
+/* Read and validate a Finobulls signal */
 function readSignal(){
   const raw = el("signal").value.trim();
   const msg = el("message");
@@ -555,7 +548,9 @@ function readSignal(){
     return;
   }
 
-  const indexName = instrument[1].replace(/\s+/g," ").trim();
+  const indexName = instrument[1].replace(/\s+/g," ").trim() === "BANKNIFTY"
+    ? "BANK NIFTY"
+    : instrument[1].replace(/\s+/g," ").trim();
   const strikeValue = Number(instrument[2]);
   const optionType = instrument[3];
 
@@ -590,8 +585,7 @@ function readSignal(){
     return;
   }
 
-  const targets = targetLine[1]
-    .match(/\d+(?:\.\d+)?/g);
+  const targets = targetLine[1].match(/\d+(?:\.\d+)?/g);
 
   if(!targets || targets.length !== 3){
     msg.innerText = "Exactly 3 targets are required.";
@@ -638,13 +632,9 @@ function readSignal(){
     "Targets: " + targetValues.join(", ") +
     "\n\nNow click FIND & VERIFY CONTRACT.";
 }
-/* PAPER TRADING LOGIC - LIVE DATA REQUIRED */
 
-let paperTrade = null;
-let paperTradeHistory = [];
-
+/* PAPER TRADE DISPLAY */
 function updatePaperDisplay(){
-
   updatePaperHistoryDisplay();
 
   if(!paperTrade){
@@ -664,7 +654,6 @@ function updatePaperDisplay(){
   el("paperStatus").innerText = trade.status;
   el("paperEntry").innerText =
     trade.entryPrice === null ? "--" : trade.entryPrice;
-
   el("paperRemaining").innerText = trade.remainingQty;
   el("paperSL").innerText = trade.sl;
 
@@ -678,45 +667,61 @@ function updatePaperDisplay(){
       : "No exit recorded.";
 }
 
+/* HISTORY TABLE: shows each partial exit separately */
 function updatePaperHistoryDisplay(){
-
   const box = el("paperTradeHistory");
 
   if(!paperTradeHistory.length){
-    box.innerText = "No completed trades yet.";
+    box.innerText = "No completed or stopped trades yet.";
     return;
   }
 
   let html = `
-    <table border="1" cellpadding="6" style="border-collapse:collapse;width:100%;font-size:12px">
+    <div class="history-wrap">
+    <table class="history-table">
       <tr>
         <th>Status</th>
         <th>Entry</th>
-        <th>Exit</th>
-        <th>Quantity</th>
-        <th>P&L</th>
+        <th>Exit Details</th>
+        <th>Total Qty</th>
+        <th>Remaining Qty</th>
+        <th>Realized P&amp;L</th>
+        <th>Reason</th>
       </tr>
   `;
 
   paperTradeHistory.forEach(trade => {
+    const exits = trade.exitEvents && trade.exitEvents.length
+      ? trade.exitEvents.map(exit =>
+          exit.label + ": " + exit.price +
+          " (Qty: " + exit.quantity + ")"
+        ).join("<br>")
+      : "No exit";
+
     html += `
       <tr>
         <td>${trade.status}</td>
-        <td>${trade.entryPrice}</td>
-        <td>${trade.exitPrice}</td>
+        <td>${trade.entryPrice === null ? "--" : trade.entryPrice}</td>
+        <td>${exits}</td>
         <td>${trade.totalQty}</td>
-        <td>${trade.profitLoss.toFixed(2)}</td>
+        <td>${trade.remainingQty}</td>
+        <td>${Number(trade.profitLoss || 0).toFixed(2)}</td>
+        <td>${trade.reason || "--"}</td>
       </tr>
     `;
   });
 
-  html += "</table>";
+  html += `
+    </table>
+    </div>
+    <p class="small">For STOPPED trades, remaining quantity has not been exited or valued. P&amp;L shows realized partial exits only.</p>
+  `;
+
   box.innerHTML = html;
 }
 
-  
-
-
+/* Prepare paper-trade structure for future authenticated live data.
+   This function is not connected to the disabled START button. */
 function startPaperLogic(){
   if(!selectedContract){
     el("algo").innerText = "LOCKED - CONTRACT NOT VERIFIED";
@@ -747,6 +752,7 @@ function startPaperLogic(){
     remainingQty: totalQty,
     realizedPnL: 0,
     exitHistory: [],
+    exitEvents: [],
     t1Qty: totalQty * 0.50,
     t2Qty: totalQty * 0.25,
     t3Qty: totalQty * 0.25,
@@ -761,9 +767,8 @@ function startPaperLogic(){
   updatePaperDisplay();
 }
 
-/* Call this only from the future authenticated Dhan live feed */
+/* Call only from a future authenticated genuine Dhan live feed */
 function processLiveLTP(ltp){
-
   if(!paperTrade || !Number.isFinite(ltp) || ltp <= 0){
     return;
   }
@@ -776,7 +781,6 @@ function processLiveLTP(ltp){
 
   /* BUY ENTRY */
   if(trade.status === "WAITING"){
-
     const entryCondition =
       trade.mode === "RANGE"
         ? ltp >= trade.entryMin && ltp <= trade.entryMax
@@ -789,9 +793,7 @@ function processLiveLTP(ltp){
     trade.entryPrice = ltp;
     trade.status = "ACTIVE";
 
-    el("algo").innerText =
-      "PAPER ENTRY - " + trade.entryPrice;
-
+    el("algo").innerText = "PAPER ENTRY - " + trade.entryPrice;
     updatePaperDisplay();
   }
 
@@ -799,120 +801,140 @@ function processLiveLTP(ltp){
     return;
   }
 
-  /* STOP LOSS */
-if(ltp <= trade.sl){
+  /* STOP LOSS: exit all remaining quantity */
+  if(ltp <= trade.sl){
+    const exitQty = trade.remainingQty;
 
-  trade.realizedPnL +=
-    (ltp - trade.entryPrice) * trade.remainingQty;
+    trade.realizedPnL += (ltp - trade.entryPrice) * exitQty;
+    trade.exitEvents.push({
+      label: "STOP LOSS",
+      price: ltp,
+      quantity: exitQty
+    });
+    trade.exitHistory.push(
+      "STOP LOSS EXIT - Price: " + ltp + " - Quantity: " + exitQty
+    );
 
-  trade.exitHistory.push(
-    "STOP LOSS EXIT - Price: " + ltp +
-    " - Quantity: " + trade.remainingQty
-  );
+    trade.remainingQty = 0;
+    trade.status = "CLOSED";
 
-  trade.remainingQty = 0;
-  trade.status = "CLOSED";
+    paperTradeHistory.push({
+      status: "CLOSED",
+      entryPrice: trade.entryPrice,
+      totalQty: trade.totalQty,
+      remainingQty: 0,
+      profitLoss: trade.realizedPnL,
+      exitEvents: trade.exitEvents.slice(),
+      reason: "STOP LOSS"
+    });
 
-  paperTradeHistory.push({
-    status: "CLOSED",
-    entryPrice: trade.entryPrice,
-    exitPrice: ltp,
-    totalQty: trade.totalQty,
-    profitLoss: trade.realizedPnL,
-    reason: "STOP LOSS"
-  });
+    el("algo").innerText = "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
+    updatePaperDisplay();
+    return;
+  }
 
-  el("algo").innerText =
-    "PAPER STOP LOSS HIT - EXITED ALL REMAINING QUANTITY";
-
-  updatePaperDisplay();
-  return;
-}
-
-  /* TARGET 1 */
+  /* TARGET 1: book 50%, move SL to entry */
   if(!trade.t1Done && ltp >= trade.t1){
-
     trade.remainingQty -= trade.t1Qty;
-    trade.realizedPnL +=
-  (ltp - trade.entryPrice) * trade.t1Qty;
+    trade.realizedPnL += (ltp - trade.entryPrice) * trade.t1Qty;
     trade.t1Done = true;
     trade.sl = trade.entryPrice;
 
+    trade.exitEvents.push({
+      label: "T1",
+      price: ltp,
+      quantity: trade.t1Qty
+    });
     trade.exitHistory.push(
-      "T1 HIT - Price: " + ltp +
-      " - Quantity Booked: " + trade.t1Qty
+      "T1 HIT - Price: " + ltp + " - Quantity Booked: " + trade.t1Qty
     );
 
-    el("algo").innerText =
-      "T1 HIT - 50% BOOKED - SL MOVED TO ENTRY";
-
+    el("algo").innerText = "T1 HIT - 50% BOOKED - SL MOVED TO ENTRY";
     updatePaperDisplay();
   }
 
-  /* TARGET 2 */
+  /* TARGET 2: book 25%, move SL to T1 */
   if(trade.t1Done && !trade.t2Done && ltp >= trade.t2){
-
     trade.remainingQty -= trade.t2Qty;
-    trade.realizedPnL +=
-  (ltp - trade.entryPrice) * trade.t2Qty;
+    trade.realizedPnL += (ltp - trade.entryPrice) * trade.t2Qty;
     trade.t2Done = true;
     trade.sl = trade.t1;
 
+    trade.exitEvents.push({
+      label: "T2",
+      price: ltp,
+      quantity: trade.t2Qty
+    });
     trade.exitHistory.push(
-      "T2 HIT - Price: " + ltp +
-      " - Quantity Booked: " + trade.t2Qty
+      "T2 HIT - Price: " + ltp + " - Quantity Booked: " + trade.t2Qty
     );
 
-    el("algo").innerText =
-      "T2 HIT - 25% BOOKED - SL MOVED TO T1";
-
+    el("algo").innerText = "T2 HIT - 25% BOOKED - SL MOVED TO T1";
     updatePaperDisplay();
   }
 
-  /* TARGET 3 */
+  /* TARGET 3: exit all remaining quantity */
   if(trade.t2Done && !trade.t3Done && ltp >= trade.t3){
-trade.realizedPnL +=
-  (ltp - trade.entryPrice) * trade.remainingQty;
+    const exitQty = trade.remainingQty;
+
+    trade.realizedPnL += (ltp - trade.entryPrice) * exitQty;
+    trade.exitEvents.push({
+      label: "T3",
+      price: ltp,
+      quantity: exitQty
+    });
     trade.exitHistory.push(
-      "T3 HIT - Price: " + ltp +
-      " - Quantity Booked: " + trade.remainingQty
+      "T3 HIT - Price: " + ltp + " - Quantity Booked: " + exitQty
     );
 
     trade.remainingQty = 0;
     trade.t3Done = true;
     trade.status = "CLOSED";
+
     paperTradeHistory.push({
-  status: "CLOSED",
-  entryPrice: trade.entryPrice,
-  exitPrice: ltp,
-  totalQty: trade.totalQty,
-  profitLoss: trade.realizedPnL,
-  reason: "TARGET 3"
-});
+      status: "CLOSED",
+      entryPrice: trade.entryPrice,
+      totalQty: trade.totalQty,
+      remainingQty: 0,
+      profitLoss: trade.realizedPnL,
+      exitEvents: trade.exitEvents.slice(),
+      reason: "TARGET 3"
+    });
 
-    el("algo").innerText =
-      "T3 HIT - ALL REMAINING QUANTITY EXITED";
-
+    el("algo").innerText = "T3 HIT - ALL REMAINING QUANTITY EXITED";
     updatePaperDisplay();
   }
 }
-function stopAlgo(){
 
+/* STOP records a stopped trade without inventing an exit price */
+function stopAlgo(){
   if(paperTrade && (
     paperTrade.status === "WAITING" ||
     paperTrade.status === "ACTIVE"
   )){
-    paperTrade.status = "STOPPED";
+    const trade = paperTrade;
+    trade.status = "STOPPED";
 
-    paperTrade.exitHistory.push(
-      "TRADE STOPPED BY USER"
-    );
+    trade.exitHistory.push("TRADE STOPPED BY USER");
+
+    paperTradeHistory.push({
+      status: "STOPPED",
+      entryPrice: trade.entryPrice,
+      totalQty: trade.totalQty,
+      remainingQty: trade.remainingQty,
+      profitLoss: trade.realizedPnL,
+      exitEvents: trade.exitEvents.slice(),
+      reason: trade.entryPrice === null
+        ? "STOPPED BEFORE ENTRY"
+        : "STOPPED - REMAINING QUANTITY NOT EXITED"
+    });
 
     updatePaperDisplay();
   }
 
   el("algo").innerText = "STOPPED";
 }
+
 /* Invalidate contract if contract-selection details change */
 ["index","option","strike"].forEach(id => {
   el(id).addEventListener("change",function(){
@@ -929,6 +951,9 @@ if("serviceWorker" in navigator){
     });
   });
 }
+
+/* Initial display */
+updatePaperDisplay();
 </script>
 </body>
 </html>
