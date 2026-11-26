@@ -512,9 +512,10 @@ function updatePaperHistoryDisplay(){
     const pnl=Number(trade.profitLoss ?? trade.realizedPnL ?? 0);
     const pnlText=Number.isFinite(pnl) ? pnl.toFixed(2) : "--";
 
-    html+='<tr>'+
-      '<td>'+escapeHTML(trade.tradeDateTime||"--")+'</td>'+
-      '<td>'+escapeHTML(trade.status||"--")+'</td>'+
+html+='<tr>'+
+  '<td>'+escapeHTML(trade.entryDateTime||"--")+'</td>'+
+  '<td>'+escapeHTML(trade.tradeDateTime||"--")+'</td>'+
+  '<td>'+escapeHTML(trade.status||"--")+'</td>'+
       '<td>'+entryPrice+'</td>'+
       '<td>'+showExit(t1)+'</td>'+
       '<td>'+showExit(t2)+'</td>'+
