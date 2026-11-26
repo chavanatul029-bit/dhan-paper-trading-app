@@ -28,10 +28,31 @@ button:disabled{opacity:.45;cursor:not-allowed}
 input[type=file]{background:#334155}
 .quantity{background:#0f172a;padding:14px;border-radius:8px;margin-top:12px;line-height:1.9;overflow-wrap:anywhere}
 .quantity strong{color:#42d6a4}
-.history-wrap{overflow-x:auto}
-.history-table{border-collapse:collapse;width:100%;font-size:12px;min-width:620px}
-.history-table th,.history-table td{border:1px solid #64748b;padding:7px;text-align:left;vertical-align:top}
-.history-table th{background:#334155}
+.history-wrap{
+  width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+
+.history-table{
+  border-collapse:collapse;
+  width:100%;
+  font-size:12px;
+  min-width:950px;
+}
+
+.history-table th,
+.history-table td{
+  border:1px solid #64748b;
+  padding:8px;
+  text-align:left;
+  vertical-align:top;
+  white-space:nowrap;
+}
+
+.history-table th{
+  background:#334155;
+}
 .history-actions{display:flex;gap:8px;flex-wrap:wrap}
 .clear-history{background:#475569;color:white}
 </style>
