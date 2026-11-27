@@ -1,0 +1,19 @@
+{
+  "name": "dhan-paper-backend-2026",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-27",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DHAN_LIVE",
+        "class_name": "DhanLive"
+      }
+    ]
+  },
+  "exports": {
+    "DhanLive": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}
