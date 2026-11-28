@@ -119,16 +119,23 @@ input[type=file]{background:#334155}
 
 <div class="card">
 <h3>4. Market Data</h3>
-<p class="status">WAITING FOR GENUINE DHAN LIVE DATA</p>
-<p class="small">No fake, simulated or manually invented LTP is used.</p>
+<p class="status" id="feedStatus">CONTRACT NOT VERIFIED</p>
+<div class="quantity">
+<p>Feed: <strong id="feedConnection">NOT CONNECTED</strong></p>
+<p>Live LTP: <strong id="liveLTP">--</strong></p>
+<p>Trade Time (IST): <strong id="liveTradeTime">--</strong></p>
+<p>Received At (IST): <strong id="liveReceivedAt">--</strong></p>
+<p>Data Age: <strong id="liveAge">--</strong></p>
+</div>
+<p class="small">Only authenticated Dhan feed ticks are displayed. Old/stale ticks are blocked from paper entries and target processing. Market hours: 09:20–15:15 IST, Monday–Friday.</p>
 </div>
 
 <div class="card">
 <h3>5. Automation</h3>
 <p class="status" id="algo">LOCKED – LIVE DATA NOT CONNECTED</p>
-<button class="start" disabled>START</button>
+<button class="start" id="startButton" onclick="startPaperLogic()" disabled>START</button>
 <button class="stop" onclick="stopAlgo()">STOP</button>
-<p class="small">Paper trading only. START remains disabled until genuine authenticated market data, contract verification and secure backend are connected.</p>
+<p class="small">Paper trading only. START is enabled only when the verified contract has a fresh authenticated Dhan tick, valid trade settings and the market is open. No real broker orders are placed.</p>
 </div>
 
 <div class="card">
@@ -174,6 +181,12 @@ let contractRows = [];
 let selectedContract = null;
 let paperTrade = null;
 let paperTradeHistory = [];
+const DHAN_WORKER_URL = "https://dhan-paper-backend-2026.chavanatul029.workers.dev";
+let livePollTimer = null;
+let liveFetchBusy = false;
+let liveFeedFresh = false;
+let latestLiveTick = null;
+let lastProcessedTickKey = "";
 
 function el(id){ return document.getElementById(id); }
 
@@ -274,11 +287,14 @@ function dateString(date){
 }
 
 function clearSelectedContract(message){
+  stopLivePolling();
   selectedContract=null;
   el("expiry").value="";
   el("expiryInfo").innerText="Expiry will be selected from the official CSV.";
   el("contractResult").innerText=message || "Contract verification required.";
   updateQuantitySummary();
+  updateLiveDisplay("CONTRACT NOT VERIFIED","NOT CONNECTED",null);
+  refreshStartButton();
 }
 
 function loadCSV(){
@@ -377,8 +393,9 @@ function findContract(){
     "\nExpiry Type: "+(expectedFlag==="W"?"Weekly":"Monthly")+"\nLot Size: "+lotSize+
     "\nDhan Security ID: "+securityId+"\nTrading Symbol: "+(selectedContract.tradingSymbol||"Not available")+
     "\nExchange: "+selectedContract.exchange+"\nSegment: "+selectedContract.segment+
-    "\n\nContract details are read from your uploaded CSV. Live LTP is not connected.";
+    "\n\nContract details are read from your uploaded CSV. Starting authenticated Dhan feed connection...";
   updateQuantitySummary();
+  startLivePolling();
 }
 
 function updateQuantitySummary(){
@@ -532,12 +549,145 @@ function updatePaperHistoryDisplay(){
 }
 
 
-/* Prepared for a future authenticated live feed. Not connected to START. */
-function startPaperLogic(){
-  if(!selectedContract){ el("algo").innerText="LOCKED - CONTRACT NOT VERIFIED"; return; }
+/* Validate setup before allowing paper automation. */
+function validateTradingSetup(){
+  if(!selectedContract) return "Contract not verified.";
   const lots=numberValue(el("lots").value);
-  if(!Number.isInteger(lots)||lots<4||lots%4!==0){ el("algo").innerText="LOCKED - INVALID LOTS"; return; }
+  if(!Number.isInteger(lots)||lots<4||lots%4!==0) return "Quantity must be 4, 8, 12, 16... lots.";
+  const mode=el("mode").value;
+  const entryMin=numberValue(el("entryMin").value);
+  const entryMax=numberValue(el("entryMax").value);
+  const sl=numberValue(el("sl").value);
+  const t1=numberValue(el("t1").value);
+  const t2=numberValue(el("t2").value);
+  const t3=numberValue(el("t3").value);
+  if(![entryMin,sl,t1,t2,t3].every(v=>Number.isFinite(v)&&v>0)) return "Entry, SL and all targets must be valid positive prices.";
+  if(mode==="RANGE"&&(!Number.isFinite(entryMax)||entryMax<entryMin)) return "Buying range is invalid.";
+  if(sl>=entryMin) return "Stop Loss must be below the entry price.";
+  const targetBase=mode==="RANGE"?entryMax:entryMin;
+  if(!(t1>targetBase&&t2>t1&&t3>t2)) return "Targets must increase and be above the entry level.";
+  return "";
+}
 
+function istClock(){
+  const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Kolkata",weekday:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
+  const get=t=>parts.find(p=>p.type===t)?.value;
+  return {weekday:get("weekday"),hour:Number(get("hour")),minute:Number(get("minute"))};
+}
+
+function isMarketOpenIST(){
+  const t=istClock();
+  const weekday=["Mon","Tue","Wed","Thu","Fri"].includes(t.weekday);
+  const minutes=t.hour*60+t.minute;
+  return weekday&&minutes>=560&&minutes<=915; // 09:20 to 15:15 IST
+}
+
+function formatIST(value){
+  if(!value) return "--";
+  const d=new Date(value);
+  if(!Number.isFinite(d.getTime())) return "--";
+  return d.toLocaleString("en-IN",{timeZone:"Asia/Kolkata"});
+}
+
+function updateLiveDisplay(status,connection,tick,ageText){
+  el("feedStatus").innerText=status;
+  el("feedConnection").innerText=connection;
+  el("liveLTP").innerText=tick&&Number.isFinite(Number(tick.ltp))?Number(tick.ltp).toFixed(2):"--";
+  el("liveTradeTime").innerText=tick?formatIST(Number(tick.tradeTime)*1000):"--";
+  el("liveReceivedAt").innerText=tick?formatIST(tick.receivedAt):"--";
+  el("liveAge").innerText=ageText||"--";
+}
+
+function refreshStartButton(){
+  const validSetup=validateTradingSetup()==="";
+  const canStart=Boolean(validSetup&&liveFeedFresh&&isMarketOpenIST()&&!paperTrade);
+  el("startButton").disabled=!canStart;
+  if(!validSetup&&selectedContract) el("algo").innerText="LOCKED – "+validateTradingSetup().toUpperCase();
+  else if(!liveFeedFresh&&selectedContract&&!paperTrade) el("algo").innerText="LOCKED – WAITING FOR FRESH DHAN TICK";
+  else if(!isMarketOpenIST()&&selectedContract&&!paperTrade) el("algo").innerText="LOCKED – MARKET CLOSED (IST)";
+  else if(canStart) el("algo").innerText="READY – FRESH DHAN LIVE DATA VERIFIED";
+}
+
+function stopLivePolling(){
+  if(livePollTimer!==null){ clearInterval(livePollTimer); livePollTimer=null; }
+  liveFeedFresh=false;
+  latestLiveTick=null;
+  lastProcessedTickKey="";
+}
+
+async function pollDhanLiveFeed(){
+  if(liveFetchBusy||!selectedContract) return;
+  liveFetchBusy=true;
+  try{
+    const segment=selectedContract.index==="SENSEX"?"BSE_FNO":"NSE_FNO";
+    const url=DHAN_WORKER_URL+"/live?segment="+encodeURIComponent(segment)+"&securityId="+encodeURIComponent(selectedContract.securityId);
+    const response=await fetch(url,{method:"GET",cache:"no-store"});
+    const data=await response.json();
+    if(!response.ok||!data.ok){
+      liveFeedFresh=false;
+      latestLiveTick=null;
+      updateLiveDisplay("DHAN FEED ERROR: "+(data.status||response.status),"NOT CONNECTED",null);
+      refreshStartButton();
+      return;
+    }
+
+    const tick=data.lastTick||null;
+    const correctContract=tick&&String(tick.securityId)===String(selectedContract.securityId)&&tick.segment===segment;
+    const tradeMs=tick?Number(tick.tradeTime)*1000:NaN;
+    const receivedMs=tick?new Date(tick.receivedAt).getTime():NaN;
+    const now=Date.now();
+    const tradeAge=(now-tradeMs)/1000;
+    const receiveAge=(now-receivedMs)/1000;
+    const fresh=Boolean(correctContract&&Number.isFinite(Number(tick.ltp))&&Number(tick.ltp)>0&&
+      Number.isFinite(tradeMs)&&Number.isFinite(receivedMs)&&tradeAge>=-5&&tradeAge<=15&&receiveAge>=-5&&receiveAge<=15);
+    liveFeedFresh=fresh;
+    latestLiveTick=fresh?tick:null;
+
+    if(!isMarketOpenIST()){
+      updateLiveDisplay("MARKET CLOSED – PAPER ENTRY DISABLED",data.marketFeed||"CONNECTED",tick,
+        Number.isFinite(tradeAge)?Math.max(0,Math.floor(tradeAge))+" sec":"--");
+    }else if(!correctContract){
+      updateLiveDisplay("WAITING FOR SELECTED CONTRACT TICK",data.marketFeed||"CONNECTED",tick);
+    }else if(!fresh){
+      updateLiveDisplay("STALE TICK – PAPER ENTRY BLOCKED",data.marketFeed||"CONNECTED",tick,
+        Number.isFinite(tradeAge)?Math.max(0,Math.floor(tradeAge))+" sec":"--");
+    }else{
+      updateLiveDisplay("FRESH DHAN LIVE TICK",data.marketFeed||"CONNECTED",tick,Math.max(0,Math.floor(tradeAge))+" sec");
+      const tickKey=String(tick.receivedAt)+"|"+String(tick.tradeTime)+"|"+String(tick.ltp);
+      if(paperTrade&&tickKey!==lastProcessedTickKey){
+        lastProcessedTickKey=tickKey;
+        processLiveLTP(Number(tick.ltp));
+      }
+    }
+    refreshStartButton();
+  }catch(error){
+    liveFeedFresh=false;
+    latestLiveTick=null;
+    updateLiveDisplay("BACKEND / NETWORK ERROR","NOT CONNECTED",null);
+    refreshStartButton();
+  }finally{
+    liveFetchBusy=false;
+  }
+}
+
+function startLivePolling(){
+  stopLivePolling();
+  if(!selectedContract) return;
+  updateLiveDisplay("CONNECTING TO DHAN FEED","CONNECTING",null);
+  pollDhanLiveFeed();
+  livePollTimer=setInterval(pollDhanLiveFeed,3000);
+}
+
+function startPaperLogic(){
+  const validationError=validateTradingSetup();
+  if(validationError){ el("algo").innerText="LOCKED – "+validationError.toUpperCase(); refreshStartButton(); return; }
+  if(!liveFeedFresh||!latestLiveTick||!isMarketOpenIST()){
+    el("algo").innerText="LOCKED – WAIT FOR A FRESH DHAN TICK DURING MARKET HOURS";
+    refreshStartButton();
+    return;
+  }
+
+  const lots=numberValue(el("lots").value);
   const totalQty=lots*selectedContract.lotSize;
   paperTrade={
     status:"WAITING",mode:el("mode").value,entryMin:numberValue(el("entryMin").value),
@@ -545,16 +695,19 @@ function startPaperLogic(){
     t1:numberValue(el("t1").value),t2:numberValue(el("t2").value),t3:numberValue(el("t3").value),
     totalQty,remainingQty:totalQty,realizedPnL:0,exitHistory:[],exitEvents:[],
     t1Qty:totalQty*0.50,t2Qty:totalQty*0.25,t3Qty:totalQty*0.25,
-    entryPrice:null,t1Done:false,t2Done:false,t3Done:false
+    entryPrice:null,t1Done:false,t2Done:false,t3Done:false,
+    securityId:selectedContract.securityId,segment:selectedContract.index==="SENSEX"?"BSE_FNO":"NSE_FNO"
   };
   savePaperData();
-  el("algo").innerText="READY - WAITING FOR AUTHENTICATED LIVE DATA";
+  el("algo").innerText="PAPER MODE ACTIVE – WAITING FOR ENTRY PRICE";
   updatePaperDisplay();
+  refreshStartButton();
 }
 
 /* Call only from a future authenticated genuine Dhan live feed */
 function processLiveLTP(ltp){
-  if(!paperTrade||!Number.isFinite(ltp)||ltp<=0) return;
+  if(!paperTrade||!Number.isFinite(ltp)||ltp<=0||!liveFeedFresh||!isMarketOpenIST()) return;
+  if(!selectedContract||paperTrade.securityId!==selectedContract.securityId) return;
   const trade=paperTrade;
   if(trade.status==="CLOSED"||trade.status==="STOPPED") return;
 
@@ -658,7 +811,11 @@ function clearPaperHistory(){
     clearSelectedContract("Contract details changed. Please verify the contract again.");
   });
 });
-el("lots").addEventListener("input",updateQuantitySummary);
+el("lots").addEventListener("input",function(){ updateQuantitySummary(); refreshStartButton(); });
+["mode","entryMin","entryMax","sl","t1","t2","t3"].forEach(id=>{
+  el(id).addEventListener("input",refreshStartButton);
+  el(id).addEventListener("change",refreshStartButton);
+});
 
 if("serviceWorker" in navigator){
   window.addEventListener("load",function(){
@@ -671,6 +828,7 @@ if("serviceWorker" in navigator){
 /* Restore locally saved history and active paper-trade state */
 loadPaperData();
 updatePaperDisplay();
+refreshStartButton();
 </script>
 </body>
 </html>
