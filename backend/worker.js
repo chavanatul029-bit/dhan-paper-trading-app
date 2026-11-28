@@ -84,7 +84,7 @@ export class DhanLive extends DurableObject {
         } catch {}
       }
 
-      const feedUrl = new URL("wss://api-feed.dhan.co");
+      const feedUrl = new URL("https://api-feed.dhan.co");
       feedUrl.searchParams.set("version", "2");
       feedUrl.searchParams.set("token", token);
       feedUrl.searchParams.set("clientId", clientId);
