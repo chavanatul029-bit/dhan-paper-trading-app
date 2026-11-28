@@ -1,5 +1,25 @@
-
 import { DurableObject } from "cloudflare:workers";
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "https://chavanatul029-bit.github.io",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Max-Age": "86400"
+};
+
+function corsResponse(response) {
+  const headers = new Headers(response.headers);
+
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    headers.set(key, value);
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
 
 export class DhanLive extends DurableObject {
   constructor(ctx, env) {
@@ -64,7 +84,7 @@ export class DhanLive extends DurableObject {
         } catch {}
       }
 
-      const feedUrl = new URL("https://api-feed.dhan.co");
+      const feedUrl = new URL("wss://api-feed.dhan.co");
       feedUrl.searchParams.set("version", "2");
       feedUrl.searchParams.set("token", token);
       feedUrl.searchParams.set("clientId", clientId);
@@ -98,7 +118,6 @@ export class DhanLive extends DurableObject {
 
           const data = new DataView(event.data);
 
-          // Dhan Ticker packet is 16 bytes
           if (data.byteLength < 16) return;
 
           const responseCode = data.getUint8(0);
@@ -188,19 +207,28 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: CORS_HEADERS
+      });
+    }
+
     if (url.pathname === "/health") {
-      return Response.json({
+      return corsResponse(Response.json({
         ok: true,
         service: "Dhan Backend"
-      });
+      }));
     }
 
     if (url.pathname === "/live") {
       const id = env.DHAN_LIVE.idFromName("main");
       const stub = env.DHAN_LIVE.get(id);
-      return stub.fetch(request);
+      const response = await stub.fetch(request);
+
+      return corsResponse(response);
     }
 
-    return new Response("Dhan Backend Ready");
+    return corsResponse(new Response("Dhan Backend Ready"));
   }
 };
