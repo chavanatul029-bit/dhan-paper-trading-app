@@ -1,3 +1,4 @@
+
 {
   "name": "dhan-paper-backend-2026",
   "main": "worker.js",
@@ -15,5 +16,12 @@
       "tag": "v1",
       "new_sqlite_classes": ["DhanLive"]
     }
-  ]
+  ],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "persist": true
+    }
+  }
 }
