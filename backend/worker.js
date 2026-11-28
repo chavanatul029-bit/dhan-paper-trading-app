@@ -11,7 +11,6 @@ export class DhanLive extends DurableObject {
 
   async fetch(request) {
     const url = new URL(request.url);
-
     const token = this.env.DHAN_ACCESS_TOKEN;
     const clientId = this.env.DHAN_CLIENT_ID;
 
@@ -28,8 +27,7 @@ export class DhanLive extends DurableObject {
     if (!securityId || !/^\d+$/.test(securityId)) {
       return Response.json({
         ok: false,
-        status: "security_id_required",
-        message: "Send /live?segment=NSE_FNO&securityId=YOUR_SECURITY_ID"
+        status: "security_id_required"
       }, { status: 400 });
     }
 
@@ -48,13 +46,16 @@ export class DhanLive extends DurableObject {
       this.activeKey === key
     ) {
       const saved = await this.ctx.storage.get("feedState");
+
       return Response.json({
         ok: true,
-        status: "connected",
+        status: saved?.status || "connected",
         marketFeed: "connected",
         lastTick: saved?.lastTick || null
       });
     }
+
+    let stage = "websocket_handshake";
 
     try {
       if (this.upstream) {
@@ -70,9 +71,7 @@ export class DhanLive extends DurableObject {
       feedUrl.searchParams.set("authType", "2");
 
       const response = await fetch(feedUrl.toString(), {
-        headers: {
-          Upgrade: "websocket"
-        }
+        headers: { Upgrade: "websocket" }
       });
 
       const ws = response.webSocket;
@@ -81,7 +80,9 @@ export class DhanLive extends DurableObject {
         return Response.json({
           ok: false,
           status: "websocket_connection_failed",
-          httpStatus: response.status
+          stage,
+          httpStatus: response.status,
+          statusText: response.statusText
         }, { status: 502 });
       }
 
@@ -97,7 +98,8 @@ export class DhanLive extends DurableObject {
 
           const data = new DataView(event.data);
 
-          if (data.byteLength < 17) return;
+          // Dhan Ticker packet is 16 bytes
+          if (data.byteLength < 16) return;
 
           const responseCode = data.getUint8(0);
           const receivedSecurityId = data.getInt32(4, true);
@@ -108,17 +110,15 @@ export class DhanLive extends DurableObject {
 
             if (!Number.isFinite(ltp) || ltp <= 0) return;
 
-            const tick = {
-              securityId: String(receivedSecurityId),
-              segment,
-              ltp,
-              tradeTime,
-              receivedAt: new Date().toISOString()
-            };
-
             await this.ctx.storage.put("feedState", {
-              status: "connected",
-              lastTick: tick
+              status: "tick_received",
+              lastTick: {
+                securityId: String(receivedSecurityId),
+                segment,
+                ltp,
+                tradeTime,
+                receivedAt: new Date().toISOString()
+              }
             });
           }
 
@@ -128,7 +128,7 @@ export class DhanLive extends DurableObject {
               lastTick: null
             });
           }
-        } catch (error) {
+        } catch {
           console.log("Dhan packet processing error");
         }
       });
@@ -149,15 +149,15 @@ export class DhanLive extends DurableObject {
         });
       });
 
+      stage = "subscribe_instrument";
+
       ws.send(JSON.stringify({
         RequestCode: 15,
         InstrumentCount: 1,
-        InstrumentList: [
-          {
-            ExchangeSegment: segment,
-            SecurityId: securityId
-          }
-        ]
+        InstrumentList: [{
+          ExchangeSegment: segment,
+          SecurityId: securityId
+        }]
       }));
 
       await this.ctx.storage.put("feedState", {
@@ -170,15 +170,15 @@ export class DhanLive extends DurableObject {
         status: "connected_waiting_for_tick",
         marketFeed: "connected",
         securityId,
-        segment,
-        message: "Waiting for first live market tick"
+        segment
       });
 
     } catch (error) {
       return Response.json({
         ok: false,
         status: "connection_error",
-        message: "Dhan feed connection could not be established"
+        stage,
+        errorName: error?.name || "UnknownError"
       }, { status: 502 });
     }
   }
